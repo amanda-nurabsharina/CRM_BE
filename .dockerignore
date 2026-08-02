@@ -1,0 +1,7 @@
+.git
+.gitignore
+crm.db
+server.exe
+main
+wa_bridge/node_modules
+wa_bridge/auth_info_baileys
