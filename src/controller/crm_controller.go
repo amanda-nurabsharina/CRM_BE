@@ -595,3 +595,116 @@ func (c *CRMController) GetAuditLogs(ctx *fiber.Ctx) error {
 	}
 	return success(ctx, fiber.StatusOK, "Audit logs retrieved", logs)
 }
+
+// ----------------- Traveler Documents -----------------
+func (c *CRMController) GetTravelers(ctx *fiber.Ctx) error {
+	var leadID *uuid.UUID
+	if lStr := ctx.Query("lead_id"); lStr != "" {
+		if id, err := uuid.Parse(lStr); err == nil {
+			leadID = &id
+		}
+	}
+
+	travelers, err := c.crmService.GetTravelers(leadID)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	return success(ctx, fiber.StatusOK, "Travelers retrieved", travelers)
+}
+
+func (c *CRMController) CreateTraveler(ctx *fiber.Ctx) error {
+	var req struct {
+		LeadID           string `json:"lead_id"`
+		FullName         string `json:"full_name"`
+		IDCardNumber     string `json:"id_card_number"`
+		PassportNumber   string `json:"passport_number"`
+		PassportExpiry   string `json:"passport_expiry"`
+		BirthDate        string `json:"birth_date"`
+		KtpPhotoUrl      string `json:"ktp_photo_url"`
+		PassportPhotoUrl string `json:"passport_photo_url"`
+	}
+
+	if err := ctx.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid payload")
+	}
+
+	leadID, err := uuid.Parse(req.LeadID)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid Lead ID")
+	}
+
+	var passExp *time.Time
+	if req.PassportExpiry != "" {
+		if t, errP := time.Parse("2006-01-02", req.PassportExpiry); errP == nil {
+			passExp = &t
+		}
+	}
+
+	var bDate *time.Time
+	if req.BirthDate != "" {
+		if t, errB := time.Parse("2006-01-02", req.BirthDate); errB == nil {
+			bDate = &t
+		}
+	}
+
+	traveler, err := c.crmService.CreateTraveler(leadID, req.FullName, req.IDCardNumber, req.PassportNumber, passExp, bDate, req.KtpPhotoUrl, req.PassportPhotoUrl)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	return success(ctx, fiber.StatusCreated, "Traveler created successfully", traveler)
+}
+
+func (c *CRMController) UpdateTraveler(ctx *fiber.Ctx) error {
+	idStr := ctx.Params("id")
+	tID, err := uuid.Parse(idStr)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid Traveler ID")
+	}
+
+	var req struct {
+		FullName         string `json:"full_name"`
+		IDCardNumber     string `json:"id_card_number"`
+		PassportNumber   string `json:"passport_number"`
+		PassportExpiry   string `json:"passport_expiry"`
+		BirthDate        string `json:"birth_date"`
+		KtpPhotoUrl      string `json:"ktp_photo_url"`
+		PassportPhotoUrl string `json:"passport_photo_url"`
+	}
+
+	if err := ctx.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid payload")
+	}
+
+	var passExp *time.Time
+	if req.PassportExpiry != "" {
+		if t, errP := time.Parse("2006-01-02", req.PassportExpiry); errP == nil {
+			passExp = &t
+		}
+	}
+
+	var bDate *time.Time
+	if req.BirthDate != "" {
+		if t, errB := time.Parse("2006-01-02", req.BirthDate); errB == nil {
+			bDate = &t
+		}
+	}
+
+	traveler, err := c.crmService.UpdateTraveler(tID, req.FullName, req.IDCardNumber, req.PassportNumber, passExp, bDate, req.KtpPhotoUrl, req.PassportPhotoUrl)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	return success(ctx, fiber.StatusOK, "Traveler updated successfully", traveler)
+}
+
+func (c *CRMController) DeleteTraveler(ctx *fiber.Ctx) error {
+	idStr := ctx.Params("id")
+	tID, err := uuid.Parse(idStr)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid Traveler ID")
+	}
+
+	if err := c.crmService.DeleteTraveler(tID); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	return success(ctx, fiber.StatusOK, "Traveler deleted successfully", nil)
+}

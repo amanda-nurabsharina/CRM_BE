@@ -894,3 +894,59 @@ func (s *CRMService) GetAuditLogs() ([]model.AuditLog, error) {
 	err := s.db.Preload("User").Preload("Branch").Order("created_at desc").Limit(100).Find(&logs).Error
 	return logs, err
 }
+
+// ----------------- Booking Travelers & Documents -----------------
+func (s *CRMService) GetTravelers(leadID *uuid.UUID) ([]model.BookingTraveler, error) {
+	var travelers []model.BookingTraveler
+	query := s.db.Preload("Lead").Preload("Lead.Branch").Preload("Documents")
+	if leadID != nil {
+		query = query.Where("lead_id = ?", leadID)
+	}
+	err := query.Order("created_at desc").Find(&travelers).Error
+	return travelers, err
+}
+
+func (s *CRMService) CreateTraveler(leadID uuid.UUID, fullName, idCardNumber, passportNumber string, passportExpiry, birthDate *time.Time, ktpPhotoUrl, passportPhotoUrl string) (*model.BookingTraveler, error) {
+	traveler := model.BookingTraveler{
+		LeadID:           leadID,
+		FullName:         fullName,
+		IDCardNumber:     idCardNumber,
+		PassportNumber:   passportNumber,
+		PassportExpiry:   passportExpiry,
+		BirthDate:        birthDate,
+		KtpPhotoUrl:      ktpPhotoUrl,
+		PassportPhotoUrl: passportPhotoUrl,
+	}
+	if err := s.db.Create(&traveler).Error; err != nil {
+		return nil, err
+	}
+	return &traveler, nil
+}
+
+func (s *CRMService) UpdateTraveler(id uuid.UUID, fullName, idCardNumber, passportNumber string, passportExpiry, birthDate *time.Time, ktpPhotoUrl, passportPhotoUrl string) (*model.BookingTraveler, error) {
+	var traveler model.BookingTraveler
+	if err := s.db.First(&traveler, id).Error; err != nil {
+		return nil, err
+	}
+
+	traveler.FullName = fullName
+	traveler.IDCardNumber = idCardNumber
+	traveler.PassportNumber = passportNumber
+	traveler.PassportExpiry = passportExpiry
+	traveler.BirthDate = birthDate
+	if ktpPhotoUrl != "" {
+		traveler.KtpPhotoUrl = ktpPhotoUrl
+	}
+	if passportPhotoUrl != "" {
+		traveler.PassportPhotoUrl = passportPhotoUrl
+	}
+
+	if err := s.db.Save(&traveler).Error; err != nil {
+		return nil, err
+	}
+	return &traveler, nil
+}
+
+func (s *CRMService) DeleteTraveler(id uuid.UUID) error {
+	return s.db.Delete(&model.BookingTraveler{}, id).Error
+}

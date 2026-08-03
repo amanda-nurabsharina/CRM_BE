@@ -77,6 +77,12 @@ func Routes(app *fiber.App, db *gorm.DB) {
 	protected.Post("/payment-terms/:term_id/proof", crmCtrl.UploadPaymentProof)
 	protected.Post("/payment-proofs/:proof_id/verify", crmCtrl.VerifyPaymentProof)
 
+	// Booking Travelers & Passport/KTP Documents
+	protected.Get("/travelers", crmCtrl.GetTravelers)
+	protected.Post("/travelers", crmCtrl.CreateTraveler)
+	protected.Put("/travelers/:id", crmCtrl.UpdateTraveler)
+	protected.Delete("/travelers/:id", crmCtrl.DeleteTraveler)
+
 	// Executive Analytics & Audit Trail
 	protected.Get("/analytics/dashboard", crmCtrl.GetDashboardKPIs)
 	protected.Get("/audit-logs", crmCtrl.GetAuditLogs)

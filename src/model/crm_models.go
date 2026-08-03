@@ -223,16 +223,19 @@ func (pp *PaymentProof) BeforeCreate(tx *gorm.DB) (err error) {
 
 // BookingTraveler stores multi-traveler info per lead booking
 type BookingTraveler struct {
-	ID             uuid.UUID          `gorm:"type:uuid;primary_key;" json:"id"`
-	LeadID         uuid.UUID          `gorm:"type:uuid;not null;index" json:"lead_id"`
-	FullName       string             `gorm:"type:varchar(150);not null" json:"full_name"`
-	IDCardNumber   string             `gorm:"type:varchar(30)" json:"id_card_number"`
-	PassportNumber string             `gorm:"type:varchar(30)" json:"passport_number"`
-	PassportExpiry *time.Time         `json:"passport_expiry"`
-	BirthDate      *time.Time         `json:"birth_date"`
-	Documents      []TravelerDocument `gorm:"foreignKey:TravelerID" json:"documents,omitempty"`
-	CreatedAt      time.Time          `json:"created_at"`
-	UpdatedAt      time.Time          `json:"updated_at"`
+	ID               uuid.UUID          `gorm:"type:uuid;primary_key;" json:"id"`
+	LeadID           uuid.UUID          `gorm:"type:uuid;not null;index" json:"lead_id"`
+	Lead             *Lead              `gorm:"foreignKey:LeadID" json:"lead,omitempty"`
+	FullName         string             `gorm:"type:varchar(150);not null" json:"full_name"`
+	IDCardNumber     string             `gorm:"type:varchar(30)" json:"id_card_number"`
+	PassportNumber   string             `gorm:"type:varchar(30)" json:"passport_number"`
+	PassportExpiry   *time.Time         `json:"passport_expiry"`
+	BirthDate        *time.Time         `json:"birth_date"`
+	KtpPhotoUrl      string             `gorm:"type:varchar(500)" json:"ktp_photo_url"`
+	PassportPhotoUrl string             `gorm:"type:varchar(500)" json:"passport_photo_url"`
+	Documents        []TravelerDocument `gorm:"foreignKey:TravelerID" json:"documents,omitempty"`
+	CreatedAt        time.Time          `json:"created_at"`
+	UpdatedAt        time.Time          `json:"updated_at"`
 }
 
 func (bt *BookingTraveler) BeforeCreate(tx *gorm.DB) (err error) {
