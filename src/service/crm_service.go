@@ -141,14 +141,16 @@ func (s *CRMService) RouteAndCreateLead(customerName, phone, domicile, source st
 	}
 
 	var branchID *uuid.UUID
+	displayDomicile := "Pusat"
 	if matchedBranch != nil {
 		branchID = &matchedBranch.ID
+		displayDomicile = matchedBranch.Name
 	}
 
 	lead := model.Lead{
 		CustomerName: customerName,
 		PhoneNumber:  phone,
-		Domicile:     domicile,
+		Domicile:     displayDomicile,
 		Source:       source,
 		Status:       "NEW",
 		BranchID:     branchID,
