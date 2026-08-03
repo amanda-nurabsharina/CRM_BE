@@ -444,8 +444,52 @@ func (s *CRMService) ProcessInboundWebhook(phone, senderName, content, mediaType
 // ----------------- Tour Packages & Quotations -----------------
 func (s *CRMService) GetTourPackages() ([]model.TourPackage, error) {
 	var pkgs []model.TourPackage
-	err := s.db.Where("is_active = ?", true).Find(&pkgs).Error
+	err := s.db.Find(&pkgs).Error
 	return pkgs, err
+}
+
+func (s *CRMService) CreateTourPackage(title, destination string, durationDays int, basePrice float64, itineraryJSON, termsConditions, pdfUrl, waTemplate string) (*model.TourPackage, error) {
+	pkg := model.TourPackage{
+		Title:           title,
+		Destination:     destination,
+		DurationDays:    durationDays,
+		BasePrice:       basePrice,
+		ItineraryJSON:   itineraryJSON,
+		TermsConditions: termsConditions,
+		PdfUrl:          pdfUrl,
+		WaTemplate:      waTemplate,
+		IsActive:        true,
+	}
+	if err := s.db.Create(&pkg).Error; err != nil {
+		return nil, err
+	}
+	return &pkg, nil
+}
+
+func (s *CRMService) UpdateTourPackage(id uuid.UUID, title, destination string, durationDays int, basePrice float64, itineraryJSON, termsConditions, pdfUrl, waTemplate string, isActive bool) (*model.TourPackage, error) {
+	var pkg model.TourPackage
+	if err := s.db.First(&pkg, id).Error; err != nil {
+		return nil, err
+	}
+
+	pkg.Title = title
+	pkg.Destination = destination
+	pkg.DurationDays = durationDays
+	pkg.BasePrice = basePrice
+	pkg.ItineraryJSON = itineraryJSON
+	pkg.TermsConditions = termsConditions
+	pkg.PdfUrl = pdfUrl
+	pkg.WaTemplate = waTemplate
+	pkg.IsActive = isActive
+
+	if err := s.db.Save(&pkg).Error; err != nil {
+		return nil, err
+	}
+	return &pkg, nil
+}
+
+func (s *CRMService) DeleteTourPackage(id uuid.UUID) error {
+	return s.db.Delete(&model.TourPackage{}, id).Error
 }
 
 func (s *CRMService) CreateQuotation(leadID, packageID, userID uuid.UUID, pax int, pricePerPax float64, addOnsJSON, customReason string) (*model.Quotation, error) {
@@ -503,24 +547,46 @@ func (s *CRMService) CreateQuotation(leadID, packageID, userID uuid.UUID, pax in
 	lead.Status = "QUOTATION_SENT"
 	s.db.Save(&lead)
 
-	// Compose & Send Official WhatsApp Quotation Message
-	quoteMsg := fmt.Sprintf(
-		"📄 *PENAWARAN HARGA RESMI (%s)*\n\n"+
-			"Halo Kak %s,\n"+
-			"Berikut detail penawaran resmi untuk paket *%s*:\n\n"+
-			"• Jumlah Pax: %d Orang\n"+
-			"• Harga per Pax: Rp %s\n"+
-			"• *Total Biaya: Rp %s*\n"+
-			"• Masa Berlaku: s/d %s\n\n"+
-			"Silakan hubungi kami melalui pesan ini untuk konfirmasi pesanan & rincian pembayaran. Terima kasih!",
-		quoteNo,
-		lead.CustomerName,
-		pkg.Title,
-		pax,
-		formatRupiah(pricePerPax),
-		formatRupiah(total),
-		quote.ValidUntil.Format("02 Jan 2006"),
-	)
+	// Compose & Send Official WhatsApp Quotation Message (Support custom template & PDF brochure)
+	quoteMsg := ""
+	if pkg.WaTemplate != "" {
+		quoteMsg = pkg.WaTemplate
+		quoteMsg = strings.ReplaceAll(quoteMsg, "{customer_name}", lead.CustomerName)
+		quoteMsg = strings.ReplaceAll(quoteMsg, "{quote_no}", quoteNo)
+		quoteMsg = strings.ReplaceAll(quoteMsg, "{package_title}", pkg.Title)
+		quoteMsg = strings.ReplaceAll(quoteMsg, "{pax}", fmt.Sprintf("%d", pax))
+		quoteMsg = strings.ReplaceAll(quoteMsg, "{price_per_pax}", formatRupiah(pricePerPax))
+		quoteMsg = strings.ReplaceAll(quoteMsg, "{total_price}", formatRupiah(total))
+		quoteMsg = strings.ReplaceAll(quoteMsg, "{valid_until}", quote.ValidUntil.Format("02 Jan 2006"))
+		pdfLink := pkg.PdfUrl
+		if pdfLink == "" {
+			pdfLink = quote.PDFUrl
+		}
+		quoteMsg = strings.ReplaceAll(quoteMsg, "{pdf_url}", pdfLink)
+	} else {
+		pdfNotice := ""
+		if pkg.PdfUrl != "" {
+			pdfNotice = fmt.Sprintf("\n• Brosur / Itinerary PDF: %s", pkg.PdfUrl)
+		}
+		quoteMsg = fmt.Sprintf(
+			"📄 *PENAWARAN HARGA RESMI (%s)*\n\n"+
+				"Halo Kak %s,\n"+
+				"Berikut detail penawaran resmi untuk paket *%s*:\n\n"+
+				"• Jumlah Pax: %d Orang\n"+
+				"• Harga per Pax: Rp %s\n"+
+				"• *Total Biaya: Rp %s*\n"+
+				"• Masa Berlaku: s/d %s%s\n\n"+
+				"Silakan hubungi kami melalui pesan ini untuk konfirmasi pesanan & rincian pembayaran. Terima kasih!",
+			quoteNo,
+			lead.CustomerName,
+			pkg.Title,
+			pax,
+			formatRupiah(pricePerPax),
+			formatRupiah(total),
+			quote.ValidUntil.Format("02 Jan 2006"),
+			pdfNotice,
+		)
+	}
 
 	// Get or Create Conversation
 	var conv model.Conversation

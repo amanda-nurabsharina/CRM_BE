@@ -65,6 +65,10 @@ func Routes(app *fiber.App, db *gorm.DB) {
 
 	// Packages & Quotations
 	protected.Get("/packages", crmCtrl.GetTourPackages)
+	protected.Post("/packages", crmCtrl.CreateTourPackage)
+	protected.Put("/packages/:id", crmCtrl.UpdateTourPackage)
+	protected.Delete("/packages/:id", crmCtrl.DeleteTourPackage)
+	protected.Post("/upload", crmCtrl.UploadFile)
 	protected.Post("/quotations", crmCtrl.CreateQuotation)
 
 	// Invoices & Dual-Check Payments

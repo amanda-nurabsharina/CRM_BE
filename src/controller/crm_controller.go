@@ -4,6 +4,11 @@ import (
 	"crm-be/src/model"
 	"crm-be/src/response"
 	"crm-be/src/service"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
@@ -362,6 +367,95 @@ func (c *CRMController) GetTourPackages(ctx *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 	return success(ctx, fiber.StatusOK, "Tour packages retrieved", pkgs)
+}
+
+func (c *CRMController) CreateTourPackage(ctx *fiber.Ctx) error {
+	var req struct {
+		Title           string  `json:"title"`
+		Destination     string  `json:"destination"`
+		DurationDays    int     `json:"duration_days"`
+		BasePrice       float64 `json:"base_price"`
+		ItineraryJSON   string  `json:"itinerary_json"`
+		TermsConditions string  `json:"terms_conditions"`
+		PdfUrl          string  `json:"pdf_url"`
+		WaTemplate      string  `json:"wa_template"`
+	}
+
+	if err := ctx.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid payload")
+	}
+
+	pkg, err := c.crmService.CreateTourPackage(req.Title, req.Destination, req.DurationDays, req.BasePrice, req.ItineraryJSON, req.TermsConditions, req.PdfUrl, req.WaTemplate)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	return success(ctx, fiber.StatusCreated, "Package created successfully", pkg)
+}
+
+func (c *CRMController) UpdateTourPackage(ctx *fiber.Ctx) error {
+	idStr := ctx.Params("id")
+	pkgID, err := uuid.Parse(idStr)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid package ID")
+	}
+
+	var req struct {
+		Title           string  `json:"title"`
+		Destination     string  `json:"destination"`
+		DurationDays    int     `json:"duration_days"`
+		BasePrice       float64 `json:"base_price"`
+		ItineraryJSON   string  `json:"itinerary_json"`
+		TermsConditions string  `json:"terms_conditions"`
+		PdfUrl          string  `json:"pdf_url"`
+		WaTemplate      string  `json:"wa_template"`
+		IsActive        bool    `json:"is_active"`
+	}
+
+	if err := ctx.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid payload")
+	}
+
+	pkg, err := c.crmService.UpdateTourPackage(pkgID, req.Title, req.Destination, req.DurationDays, req.BasePrice, req.ItineraryJSON, req.TermsConditions, req.PdfUrl, req.WaTemplate, req.IsActive)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	return success(ctx, fiber.StatusOK, "Package updated successfully", pkg)
+}
+
+func (c *CRMController) DeleteTourPackage(ctx *fiber.Ctx) error {
+	idStr := ctx.Params("id")
+	pkgID, err := uuid.Parse(idStr)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid package ID")
+	}
+
+	if err := c.crmService.DeleteTourPackage(pkgID); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	return success(ctx, fiber.StatusOK, "Package deleted successfully", nil)
+}
+
+func (c *CRMController) UploadFile(ctx *fiber.Ctx) error {
+	file, err := ctx.FormFile("file")
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "No file uploaded")
+	}
+
+	uploadDir := "./uploads/brochures"
+	os.MkdirAll(uploadDir, 0755)
+
+	filename := fmt.Sprintf("%d_%s", time.Now().Unix(), filepath.Base(file.Filename))
+	savePath := filepath.Join(uploadDir, filename)
+
+	if err := ctx.SaveFile(file, savePath); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Failed to save file")
+	}
+
+	fileURL := fmt.Sprintf("http://localhost:8000/uploads/brochures/%s", filename)
+	return success(ctx, fiber.StatusOK, "File uploaded successfully", fiber.Map{
+		"url":       fileURL,
+		"file_name": file.Filename,
+	})
 }
 
 func (c *CRMController) CreateQuotation(ctx *fiber.Ctx) error {

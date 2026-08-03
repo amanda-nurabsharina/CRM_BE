@@ -107,6 +107,8 @@ type TourPackage struct {
 	BasePrice       float64        `gorm:"type:decimal(15,2);not null" json:"base_price"`
 	ItineraryJSON   string         `gorm:"type:text" json:"itinerary_json"`
 	TermsConditions string         `gorm:"type:text" json:"terms_conditions"`
+	PdfUrl          string         `gorm:"type:varchar(500)" json:"pdf_url"`
+	WaTemplate      string         `gorm:"type:text" json:"wa_template"`
 	IsActive        bool           `gorm:"default:true" json:"is_active"`
 	CreatedAt       time.Time      `json:"created_at"`
 	UpdatedAt       time.Time      `json:"updated_at"`
