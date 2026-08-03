@@ -220,6 +220,11 @@ func (s *CRMService) HandoverLead(leadID uuid.UUID, targetBranchID uuid.UUID, no
 		return nil, err
 	}
 
+	var targetBranch model.Branch
+	if err := s.db.First(&targetBranch, targetBranchID).Error; err == nil {
+		lead.Domicile = targetBranch.Name
+	}
+
 	oldBranchID := lead.BranchID
 	lead.BranchID = &targetBranchID
 	if note != "" {
