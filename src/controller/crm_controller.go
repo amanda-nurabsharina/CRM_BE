@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"crm-be/src/model"
 	"crm-be/src/response"
 	"crm-be/src/service"
 	"github.com/gofiber/fiber/v2"
@@ -131,9 +132,21 @@ func (c *CRMController) GetLeads(ctx *fiber.Ctx) error {
 	status := ctx.Query("status")
 	var branchID *uuid.UUID
 
-	if bStr := ctx.Query("branch_id"); bStr != "" {
+	if bStr := ctx.Query("branch_id"); bStr != "" && bStr != "ALL" {
 		if id, err := uuid.Parse(bStr); err == nil {
 			branchID = &id
+		}
+	}
+
+	// Enforce branch filtering if logged in user is ADMIN_CABANG / SALES_AGENT
+	if userIDStr, ok := ctx.Locals("userId").(string); ok && userIDStr != "" {
+		if uID, err := uuid.Parse(userIDStr); err == nil {
+			var user model.User
+			if errU := c.crmService.GetUserByID(uID, &user); errU == nil {
+				if user.Role != "ADMIN_PUSAT" && user.BranchID != nil {
+					branchID = user.BranchID
+				}
+			}
 		}
 	}
 
@@ -238,9 +251,21 @@ func (c *CRMController) MergeLeads(ctx *fiber.Ctx) error {
 // ----------------- Conversations & Messages -----------------
 func (c *CRMController) GetConversations(ctx *fiber.Ctx) error {
 	var branchID *uuid.UUID
-	if bStr := ctx.Query("branch_id"); bStr != "" {
+	if bStr := ctx.Query("branch_id"); bStr != "" && bStr != "ALL" {
 		if id, err := uuid.Parse(bStr); err == nil {
 			branchID = &id
+		}
+	}
+
+	// Enforce branch filtering if logged in user is ADMIN_CABANG / SALES_AGENT
+	if userIDStr, ok := ctx.Locals("userId").(string); ok && userIDStr != "" {
+		if uID, err := uuid.Parse(userIDStr); err == nil {
+			var user model.User
+			if errU := c.crmService.GetUserByID(uID, &user); errU == nil {
+				if user.Role != "ADMIN_PUSAT" && user.BranchID != nil {
+					branchID = user.BranchID
+				}
+			}
 		}
 	}
 

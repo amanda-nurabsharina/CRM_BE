@@ -78,6 +78,10 @@ func (s *CRMService) GetUsers() ([]model.User, error) {
 	return users, err
 }
 
+func (s *CRMService) GetUserByID(id uuid.UUID, user *model.User) error {
+	return s.db.Preload("Branch").First(user, id).Error
+}
+
 func (s *CRMService) CreateUser(name, email, password, role string, branchID *uuid.UUID) (*model.User, error) {
 	hashedPass, err := utils.HashPassword(password)
 	if err != nil {
