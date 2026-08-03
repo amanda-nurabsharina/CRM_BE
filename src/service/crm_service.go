@@ -421,12 +421,17 @@ func (s *CRMService) ProcessInboundWebhook(phone, senderName, content, mediaType
 		s.db.Create(&conv)
 	}
 
+	msgType := mediaType
+	if msgType == "" || msgType == "CALL" {
+		msgType = "DOCUMENT"
+	}
+
 	msg := model.Message{
 		ConversationID: conv.ID,
 		SenderType:     senderType,
 		SenderID:       phone,
 		Direction:      direction,
-		MessageType:    mediaType,
+		MessageType:    msgType,
 		Content:        content,
 		MediaURL:       mediaURL,
 		Status:         "DELIVERED",
@@ -437,6 +442,12 @@ func (s *CRMService) ProcessInboundWebhook(phone, senderName, content, mediaType
 
 	conv.LastMessageAt = time.Now()
 	s.db.Save(&conv)
+
+	// Log Audit Trail for Inbound WhatsApp Calls
+	if mediaType == "CALL" || strings.Contains(content, "Panggilan") || strings.Contains(content, "Call") {
+		auditDesc := fmt.Sprintf("Panggilan WhatsApp Masuk: %s (+%s)", lead.CustomerName, phone)
+		s.LogAudit(nil, lead.BranchID, "INBOUND_CALL", "conversations", conv.ID.String(), nil, auditDesc, "SYSTEM")
+	}
 
 	return &msg, nil
 }
