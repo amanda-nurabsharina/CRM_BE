@@ -61,8 +61,19 @@ async function connectToWhatsApp() {
             continue;
           }
 
-          const phone = fromJid.split("@")[0];
+          let phone = fromJid.split("@")[0];
+          if (fromJid.endsWith("@lid")) {
+            if (msg.key.participant && msg.key.participant.endsWith("@s.whatsapp.net")) {
+              phone = msg.key.participant.split("@")[0];
+            } else if (msg.participant && msg.participant.endsWith("@s.whatsapp.net")) {
+              phone = msg.participant.split("@")[0];
+            }
+          }
+
           phoneToJidMap[phone] = fromJid; // Save mapping for outbound delivery
+          if (fromJid.endsWith("@lid")) {
+            phoneToJidMap[fromJid.split("@")[0]] = fromJid;
+          }
 
           const senderName = msg.pushName || `WA User (${phone})`;
 
