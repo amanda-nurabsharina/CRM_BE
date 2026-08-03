@@ -43,10 +43,12 @@ func Routes(app *fiber.App, db *gorm.DB) {
 	protected := v1.Group("/", middleware.Protected())
 	protected.Get("/auth/me", authCtrl.Me)
 
-	// Branch routes
+	// Branch & User Management routes
 	protected.Get("/branches", crmCtrl.GetBranches)
 	protected.Post("/branches", crmCtrl.CreateBranch)
 	protected.Put("/branches/:id", crmCtrl.UpdateBranch)
+	protected.Get("/users", crmCtrl.GetUsers)
+	protected.Post("/users", crmCtrl.CreateUser)
 
 	// Lead Pipeline routes
 	protected.Get("/leads", crmCtrl.GetLeads)

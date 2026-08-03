@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/glebarez/sqlite"
+	"github.com/google/uuid"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -99,49 +100,54 @@ func SeedDefaultData(db *gorm.DB) {
 	db.Exec("DELETE FROM leads WHERE phone_number IN ('status', '120363379468732783') OR length(phone_number) > 17")
 	db.Exec("DELETE FROM conversations WHERE lead_id NOT IN (SELECT id FROM leads)")
 
-	// Seed Users
-	var userCount int64
-	db.Model(&model.User{}).Count(&userCount)
-	if userCount == 0 {
-		hashedPass, _ := utils.HashPassword("password123")
+	// Seed & Ensure Branch Admin Users
+	hashedPass, _ := utils.HashPassword("password123")
 
-		var jktPusatBranch model.Branch
-		db.Where("code = ?", "JKT_PST").First(&jktPusatBranch)
-
-		var mdnBranch model.Branch
-		db.Where("code = ?", "MDN").First(&mdnBranch)
-
-		adminPusat := model.User{
-			Name:     "Admin Pusat DGT",
-			Email:    "pusat@dgt.co.id",
-			Password: hashedPass,
-			Role:     "ADMIN_PUSAT",
-			IsActive: true,
-		}
-		db.Create(&adminPusat)
-
-		adminJkt := model.User{
-			Name:     "Admin Cabang Jakarta Pusat",
-			Email:    "admin.jkt@dgt.co.id",
-			Password: hashedPass,
-			Role:     "ADMIN_CABANG",
-			BranchID: &jktPusatBranch.ID,
-			IsActive: true,
-		}
-		db.Create(&adminJkt)
-
-		adminMdn := model.User{
-			Name:     "Admin Cabang Medan",
-			Email:    "admin.mdn@dgt.co.id",
-			Password: hashedPass,
-			Role:     "ADMIN_CABANG",
-			BranchID: &mdnBranch.ID,
-			IsActive: true,
-		}
-		db.Create(&adminMdn)
-
-		utils.Log.Info("Default DGT CRM users seeded: pusat@dgt.co.id, admin.jkt@dgt.co.id, admin.mdn@dgt.co.id (Password: 'password123')")
+	usersToSeed := []struct {
+		Email      string
+		Name       string
+		Role       string
+		BranchCode string
+	}{
+		{Email: "pusat@dgt.co.id", Name: "Admin Pusat DGT", Role: "ADMIN_PUSAT", BranchCode: "PUSAT"},
+		{Email: "admin.jkt@dgt.co.id", Name: "Admin Cabang Jakarta Pusat", Role: "ADMIN_CABANG", BranchCode: "JKT_PST"},
+		{Email: "admin.jkt.sel@dgt.co.id", Name: "Admin Cabang Jakarta Selatan", Role: "ADMIN_CABANG", BranchCode: "JKT_SEL"},
+		{Email: "admin.jkt.utr@dgt.co.id", Name: "Admin Cabang Jakarta Utara", Role: "ADMIN_CABANG", BranchCode: "JKT_UTR"},
+		{Email: "admin.mdn@dgt.co.id", Name: "Admin Cabang Medan", Role: "ADMIN_CABANG", BranchCode: "MDN"},
+		{Email: "admin.tgr@dgt.co.id", Name: "Admin Cabang Tangerang", Role: "ADMIN_CABANG", BranchCode: "TGR"},
 	}
+
+	for _, u := range usersToSeed {
+		var branch model.Branch
+		var branchID *uuid.UUID
+		if u.BranchCode != "" {
+			if errB := db.Where("code = ?", u.BranchCode).First(&branch).Error; errB == nil {
+				branchID = &branch.ID
+			}
+		}
+
+		var count int64
+		db.Model(&model.User{}).Where("email = ?", u.Email).Count(&count)
+		if count == 0 {
+			user := model.User{
+				Name:     u.Name,
+				Email:    u.Email,
+				Password: hashedPass,
+				Role:     u.Role,
+				BranchID: branchID,
+				IsActive: true,
+			}
+			db.Create(&user)
+		} else {
+			// Ensure password is updated to password123 for testing login
+			db.Model(&model.User{}).Where("email = ?", u.Email).Updates(map[string]interface{}{
+				"password":  hashedPass,
+				"branch_id": branchID,
+				"is_active": true,
+			})
+		}
+	}
+	utils.Log.Info("DGT Branch admin users seeded & verified (Password: 'password123')")
 
 	// Seed Tour Packages
 	var pkgCount int64

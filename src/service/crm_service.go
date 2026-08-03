@@ -4,6 +4,7 @@ import (
 	"context"
 	"crm-be/src/model"
 	"crm-be/src/provider"
+	"crm-be/src/utils"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -69,6 +70,35 @@ func (s *CRMService) UpdateBranch(id uuid.UUID, name, code, waPhone, coverageAre
 
 	s.LogAudit(&userID, &b.ID, "BRANCH_UPDATED", "branches", b.ID.String(), old, b, "")
 	return &b, nil
+}
+
+func (s *CRMService) GetUsers() ([]model.User, error) {
+	var users []model.User
+	err := s.db.Preload("Branch").Order("created_at desc").Find(&users).Error
+	return users, err
+}
+
+func (s *CRMService) CreateUser(name, email, password, role string, branchID *uuid.UUID) (*model.User, error) {
+	hashedPass, err := utils.HashPassword(password)
+	if err != nil {
+		return nil, err
+	}
+
+	user := model.User{
+		Name:     name,
+		Email:    email,
+		Password: hashedPass,
+		Role:     role,
+		BranchID: branchID,
+		IsActive: true,
+	}
+
+	if err := s.db.Create(&user).Error; err != nil {
+		return nil, err
+	}
+
+	s.LogAudit(nil, branchID, "USER_CREATED", "users", user.ID.String(), nil, user, "Created user account")
+	return &user, nil
 }
 
 func (s *CRMService) CreateBranch(name, code, waPhone, coverageAreas string, userID uuid.UUID) (*model.Branch, error) {

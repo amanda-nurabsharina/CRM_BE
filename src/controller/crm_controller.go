@@ -83,6 +83,49 @@ func (c *CRMController) CreateBranch(ctx *fiber.Ctx) error {
 	return success(ctx, fiber.StatusCreated, "Branch created successfully", b)
 }
 
+func (c *CRMController) GetUsers(ctx *fiber.Ctx) error {
+	users, err := c.crmService.GetUsers()
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	return success(ctx, fiber.StatusOK, "Users fetched successfully", users)
+}
+
+func (c *CRMController) CreateUser(ctx *fiber.Ctx) error {
+	var req struct {
+		Name     string `json:"name"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		Role     string `json:"role"`
+		BranchID string `json:"branch_id"`
+	}
+
+	if err := ctx.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+	}
+
+	if req.Role == "" {
+		req.Role = "ADMIN_CABANG"
+	}
+	if req.Password == "" {
+		req.Password = "password123"
+	}
+
+	var branchID *uuid.UUID
+	if req.BranchID != "" {
+		bID, err := uuid.Parse(req.BranchID)
+		if err == nil {
+			branchID = &bID
+		}
+	}
+
+	user, err := c.crmService.CreateUser(req.Name, req.Email, req.Password, req.Role, branchID)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	return success(ctx, fiber.StatusCreated, "User account created successfully", user)
+}
+
 // ----------------- Leads -----------------
 func (c *CRMController) GetLeads(ctx *fiber.Ctx) error {
 	status := ctx.Query("status")
