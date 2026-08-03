@@ -503,9 +503,99 @@ func (s *CRMService) CreateQuotation(leadID, packageID, userID uuid.UUID, pax in
 	lead.Status = "QUOTATION_SENT"
 	s.db.Save(&lead)
 
+	// Compose & Send Official WhatsApp Quotation Message
+	quoteMsg := fmt.Sprintf(
+		"📄 *PENAWARAN HARGA RESMI (%s)*\n\n"+
+			"Halo Kak %s,\n"+
+			"Berikut detail penawaran resmi untuk paket *%s*:\n\n"+
+			"• Jumlah Pax: %d Orang\n"+
+			"• Harga per Pax: Rp %s\n"+
+			"• *Total Biaya: Rp %s*\n"+
+			"• Masa Berlaku: s/d %s\n\n"+
+			"Silakan hubungi kami melalui pesan ini untuk konfirmasi pesanan & rincian pembayaran. Terima kasih!",
+		quoteNo,
+		lead.CustomerName,
+		pkg.Title,
+		pax,
+		formatRupiah(pricePerPax),
+		formatRupiah(total),
+		quote.ValidUntil.Format("02 Jan 2006"),
+	)
+
+	// Get or Create Conversation
+	var conv model.Conversation
+	if errC := s.db.Where("lead_id = ?", leadID).First(&conv).Error; errC != nil {
+		conv = model.Conversation{
+			LeadID:        leadID,
+			BranchID:      branchID,
+			Status:        "OPEN",
+			LastMessageAt: time.Now(),
+		}
+		s.db.Create(&conv)
+	}
+
+	branchCode := "PUSAT"
+	if lead.BranchID != nil {
+		var b model.Branch
+		if errB := s.db.First(&b, *lead.BranchID).Error; errB == nil {
+			branchCode = b.Code
+		}
+	}
+
+	waResp, errWa := s.waClient.SendText(context.Background(), provider.SendTextRequest{
+		ToPhone:        lead.PhoneNumber,
+		BranchCode:     branchCode,
+		Text:           quoteMsg,
+		ConversationID: conv.ID.String(),
+	})
+
+	extMsgID := ""
+	statusMsg := "DELIVERED"
+	if errWa == nil && waResp != nil {
+		extMsgID = waResp.ExternalMessageID
+		if waResp.Status != "" {
+			statusMsg = waResp.Status
+		}
+	}
+
+	// Save outbound message to conversation record
+	msg := model.Message{
+		ConversationID:    conv.ID,
+		SenderType:        "ADMIN",
+		SenderID:          userID.String(),
+		Direction:         "OUTBOUND",
+		MessageType:       "TEXT",
+		Content:           quoteMsg,
+		ExternalMessageID: extMsgID,
+		Status:            statusMsg,
+		SentAt:            time.Now(),
+	}
+	s.db.Create(&msg)
+
+	conv.LastMessageAt = time.Now()
+	s.db.Save(&conv)
+
 	s.LogAudit(&userID, &branchID, "QUOTATION_CREATED", "quotations", quote.ID.String(), nil, quote, "")
 
 	return &quote, nil
+}
+
+func formatRupiah(amount float64) string {
+	in := int64(amount)
+	str := fmt.Sprintf("%d", in)
+	n := len(str)
+	if n <= 3 {
+		return str
+	}
+	var out []string
+	for i := n; i > 0; i -= 3 {
+		if i-3 < 0 {
+			out = append([]string{str[0:i]}, out...)
+		} else {
+			out = append([]string{str[i-3 : i]}, out...)
+		}
+	}
+	return strings.Join(out, ".")
 }
 
 // ----------------- Invoices & Dual-Check Payments -----------------
