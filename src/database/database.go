@@ -67,6 +67,7 @@ func SeedDefaultData(db *gorm.DB) {
 	db.Model(&model.Branch{}).Count(&branchCount)
 	if branchCount == 0 {
 		branches := []model.Branch{
+			{Name: "DGT Kantor Pusat", Code: "PUSAT", WAPhoneNumber: "628110001000", CoverageAreas: "Pusat, General, Indonesia, All, Default Fallback"},
 			{Name: "DGT Jakarta Pusat", Code: "JKT_PST", WAPhoneNumber: "628110001001", CoverageAreas: "Jakarta Pusat, Gambir, Tanah Abang, Menteng, Senen, Cempaka Putih, Johar Baru, Kemayoran"},
 			{Name: "DGT Jakarta Selatan", Code: "JKT_SEL", WAPhoneNumber: "628110001002", CoverageAreas: "Jakarta Selatan, Kebayoran Baru, Kebayoran Lama, Cilandak, Pesanggrahan, Pasar Minggu, Jagakarsa, Mampang Prapatan, Pancoran, Tebet, Setiabudi"},
 			{Name: "DGT Jakarta Utara", Code: "JKT_UTR", WAPhoneNumber: "628110001003", CoverageAreas: "Jakarta Utara, Penjaringan, Pademangan, Tanjung Priok, Koja, Kelapa Gading, Cilincing"},
@@ -78,6 +79,25 @@ func SeedDefaultData(db *gorm.DB) {
 		}
 		utils.Log.Info("DGT Branches seeded successfully")
 	}
+
+	// Always ensure PUSAT branch exists
+	var pusatCount int64
+	db.Model(&model.Branch{}).Where("code = ?", "PUSAT").Count(&pusatCount)
+	if pusatCount == 0 {
+		pusatBranch := model.Branch{
+			Name:          "DGT Kantor Pusat",
+			Code:          "PUSAT",
+			WAPhoneNumber: "628110001000",
+			CoverageAreas: "Pusat, General, Indonesia, All, Default Fallback",
+			IsActive:      true,
+		}
+		db.Create(&pusatBranch)
+		utils.Log.Info("DGT Kantor Pusat branch seeded successfully")
+	}
+
+	// Purge legacy junk leads created from status broadcast or group JIDs
+	db.Exec("DELETE FROM leads WHERE phone_number IN ('status', '120363379468732783') OR length(phone_number) > 17")
+	db.Exec("DELETE FROM conversations WHERE lead_id NOT IN (SELECT id FROM leads)")
 
 	// Seed Users
 	var userCount int64

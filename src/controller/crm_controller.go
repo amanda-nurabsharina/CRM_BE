@@ -214,11 +214,27 @@ func (c *CRMController) SendMessage(ctx *fiber.Ctx) error {
 	return success(ctx, fiber.StatusOK, "Message sent", msg)
 }
 
+func (c *CRMController) DeleteConversation(ctx *fiber.Ctx) error {
+	convID, err := uuid.Parse(ctx.Params("id"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid conversation ID")
+	}
+
+	userIDStr, _ := ctx.Locals("userId").(string)
+	userID, _ := uuid.Parse(userIDStr)
+
+	if err := c.crmService.DeleteConversation(convID, userID); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	return success(ctx, fiber.StatusOK, "Conversation deleted successfully", nil)
+}
+
 func (c *CRMController) WhatsAppWebhook(ctx *fiber.Ctx) error {
 	var req struct {
 		FromPhone  string `json:"from_phone"`
 		SenderName string `json:"sender_name"`
 		Content    string `json:"content"`
+		Direction  string `json:"direction"`
 		MediaType  string `json:"media_type"`
 		MediaURL   string `json:"media_url"`
 	}
@@ -234,7 +250,7 @@ func (c *CRMController) WhatsAppWebhook(ctx *fiber.Ctx) error {
 		req.SenderName = "WhatsApp User (" + req.FromPhone + ")"
 	}
 
-	msg, err := c.crmService.ProcessInboundWebhook(req.FromPhone, req.SenderName, req.Content, req.MediaType, req.MediaURL)
+	msg, err := c.crmService.ProcessInboundWebhook(req.FromPhone, req.SenderName, req.Content, req.MediaType, req.MediaURL, req.Direction)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}

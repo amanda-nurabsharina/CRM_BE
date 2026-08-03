@@ -89,30 +89,54 @@ func (s *CRMService) CreateBranch(name, code, waPhone, coverageAreas string, use
 
 // ----------------- Lead Auto Routing & Duplicate Engine -----------------
 func (s *CRMService) RouteAndCreateLead(customerName, phone, domicile, source string) (*model.Lead, error) {
-	// 1. Check duplicate lead by phone number
-	var existingLead model.Lead
-	err := s.db.Where("phone_number = ? AND is_merged = ?", phone, false).First(&existingLead).Error
-	if err == nil {
-		// Existing active lead found
-		return &existingLead, nil
+	if phone == "status" || strings.Contains(phone, "@g.us") || len(phone) > 17 {
+		return nil, fmt.Errorf("ignoring non-individual WA contact: %s", phone)
 	}
 
-	// 2. Determine Branch by Domicile
+	// 1. Determine Branch by Domicile / Content keywords
 	var matchedBranch *model.Branch
 	var branches []model.Branch
 	s.db.Where("is_active = ?", true).Find(&branches)
 
 	domicileLower := strings.ToLower(domicile)
-	for i, b := range branches {
-		areas := strings.Split(strings.ToLower(b.CoverageAreas), ",")
-		for _, area := range areas {
-			if strings.Contains(domicileLower, strings.TrimSpace(area)) {
-				matchedBranch = &branches[i]
+	if domicileLower != "" {
+		for i, b := range branches {
+			areas := strings.Split(strings.ToLower(b.CoverageAreas), ",")
+			for _, area := range areas {
+				cleanArea := strings.TrimSpace(area)
+				if cleanArea != "" && strings.Contains(domicileLower, cleanArea) {
+					matchedBranch = &branches[i]
+					break
+				}
+			}
+			if matchedBranch != nil {
 				break
 			}
 		}
-		if matchedBranch != nil {
-			break
+	}
+
+	// 2. Check duplicate lead by phone number
+	var existingLead model.Lead
+	err := s.db.Where("phone_number = ? AND is_merged = ?", phone, false).First(&existingLead).Error
+	if err == nil {
+		// Existing active lead found — if a specific branch match (e.g. BSD -> Tangerang) was found, update lead's branch!
+		if matchedBranch != nil && (existingLead.BranchID == nil || *existingLead.BranchID != matchedBranch.ID) {
+			existingLead.BranchID = &matchedBranch.ID
+			existingLead.Domicile = matchedBranch.Name
+			s.db.Save(&existingLead)
+
+			// Update active conversation branch as well
+			s.db.Model(&model.Conversation{}).Where("lead_id = ?", existingLead.ID).Update("branch_id", matchedBranch.ID)
+		}
+		return &existingLead, nil
+	}
+
+	if matchedBranch == nil {
+		var pusatBranch model.Branch
+		if errP := s.db.Where("code = ?", "PUSAT").First(&pusatBranch).Error; errP == nil {
+			matchedBranch = &pusatBranch
+		} else if len(branches) > 0 {
+			matchedBranch = &branches[0]
 		}
 	}
 
@@ -227,6 +251,29 @@ func (s *CRMService) GetMessages(convID uuid.UUID) ([]model.Message, error) {
 	return msgs, err
 }
 
+func (s *CRMService) DeleteConversation(convID uuid.UUID, userID uuid.UUID) error {
+	var conv model.Conversation
+	if err := s.db.First(&conv, convID).Error; err != nil {
+		return err
+	}
+
+	// Delete all messages in conversation
+	s.db.Where("conversation_id = ?", convID).Unscoped().Delete(&model.Message{})
+
+	// Delete associated lead
+	if conv.LeadID != uuid.Nil {
+		s.db.Where("id = ?", conv.LeadID).Unscoped().Delete(&model.Lead{})
+	}
+
+	// Delete conversation
+	if err := s.db.Unscoped().Delete(&conv).Error; err != nil {
+		return err
+	}
+
+	s.LogAudit(&userID, &conv.ID, "CONVERSATION_DELETED", "conversations", convID.String(), conv, nil, "Chat deleted for testing")
+	return nil
+}
+
 func (s *CRMService) SendOutboundMessage(convID uuid.UUID, senderID string, text string) (*model.Message, error) {
 	var conv model.Conversation
 	if err := s.db.Preload("Lead").Preload("Lead.Branch").First(&conv, convID).Error; err != nil {
@@ -269,9 +316,17 @@ func (s *CRMService) SendOutboundMessage(convID uuid.UUID, senderID string, text
 	return &msg, nil
 }
 
-func (s *CRMService) ProcessInboundWebhook(phone, senderName, content, mediaType, mediaURL string) (*model.Message, error) {
-	// 1. Find or create lead via auto-routing
-	lead, err := s.RouteAndCreateLead(senderName, phone, "Jakarta", "WHATSAPP")
+func (s *CRMService) ProcessInboundWebhook(phone, senderName, content, mediaType, mediaURL, direction string) (*model.Message, error) {
+	if direction == "" {
+		direction = "INBOUND"
+	}
+	senderType := "CUSTOMER"
+	if direction == "OUTBOUND" {
+		senderType = "ADMIN"
+	}
+
+	// 1. Find or create lead via auto-routing using message content for location detection
+	lead, err := s.RouteAndCreateLead(senderName, phone, content, "WHATSAPP")
 	if err != nil {
 		return nil, err
 	}
@@ -280,9 +335,21 @@ func (s *CRMService) ProcessInboundWebhook(phone, senderName, content, mediaType
 	var conv model.Conversation
 	err = s.db.Where("lead_id = ?", lead.ID).First(&conv).Error
 	if err != nil {
+		var branchID uuid.UUID
+		if lead.BranchID != nil {
+			branchID = *lead.BranchID
+		} else {
+			var fallbackBranch model.Branch
+			if errB := s.db.First(&fallbackBranch).Error; errB == nil {
+				branchID = fallbackBranch.ID
+				lead.BranchID = &fallbackBranch.ID
+				s.db.Save(lead)
+			}
+		}
+
 		conv = model.Conversation{
 			LeadID:        lead.ID,
-			BranchID:      *lead.BranchID,
+			BranchID:      branchID,
 			Status:        "ACTIVE",
 			LastMessageAt: time.Now(),
 		}
@@ -291,9 +358,9 @@ func (s *CRMService) ProcessInboundWebhook(phone, senderName, content, mediaType
 
 	msg := model.Message{
 		ConversationID: conv.ID,
-		SenderType:     "CUSTOMER",
+		SenderType:     senderType,
 		SenderID:       phone,
-		Direction:      "INBOUND",
+		Direction:      direction,
 		MessageType:    mediaType,
 		Content:        content,
 		MediaURL:       mediaURL,

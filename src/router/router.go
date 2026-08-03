@@ -58,6 +58,7 @@ func Routes(app *fiber.App, db *gorm.DB) {
 	protected.Get("/conversations", crmCtrl.GetConversations)
 	protected.Get("/conversations/:id/messages", crmCtrl.GetMessages)
 	protected.Post("/conversations/:id/messages", crmCtrl.SendMessage)
+	protected.Delete("/conversations/:id", crmCtrl.DeleteConversation)
 
 	// Packages & Quotations
 	protected.Get("/packages", crmCtrl.GetTourPackages)

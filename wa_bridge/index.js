@@ -14,6 +14,7 @@ const CRM_WEBHOOK_URL = "http://localhost:8000/v1/webhooks/whatsapp";
 let sock = null;
 let currentQR = "";
 let connectionStatus = "DISCONNECTED";
+const phoneToJidMap = {}; // Global JID cache
 
 async function connectToWhatsApp() {
   const { state, saveCreds } = await useMultiFileAuthState("auth_info_baileys");
@@ -52,13 +53,30 @@ async function connectToWhatsApp() {
   sock.ev.on("messages.upsert", async (m) => {
     if (m.type === "notify") {
       for (const msg of m.messages) {
-        if (!msg.key.fromMe && msg.message) {
-          const fromJid = msg.key.remoteJid;
-          const phone = fromJid.split("@")[0];
-          const senderName = msg.pushName || `WA User (${phone})`;
-          const content = msg.message.conversation || msg.message.extendedTextMessage?.text || "[Media Message]";
+        if (msg.message) {
+          const fromJid = msg.key.remoteJid || "";
 
-          console.log(`[WA-BRIDGE] Inbound WA Message from ${phone} (${senderName}): ${content}`);
+          // Ignore group chats (@g.us), channels (@newsletter), and broadcast status
+          if (fromJid.endsWith("@g.us") || fromJid.endsWith("@newsletter") || fromJid.includes("status@broadcast")) {
+            continue;
+          }
+
+          const phone = fromJid.split("@")[0];
+          phoneToJidMap[phone] = fromJid; // Save mapping for outbound delivery
+
+          const senderName = msg.pushName || `WA User (${phone})`;
+
+          const content =
+            msg.message.conversation ||
+            msg.message.extendedTextMessage?.text ||
+            msg.message.imageMessage?.caption ||
+            msg.message.videoMessage?.caption ||
+            msg.message.documentMessage?.caption ||
+            "[Pesan Media/Gambar]";
+
+          const isFromMe = msg.key.fromMe;
+
+          console.log(`[WA-BRIDGE] ${isFromMe ? "Outbound (from HP)" : "Inbound"} WA Message from ${phone} (${fromJid}): ${content}`);
 
           // Forward to Go CRM Webhook
           try {
@@ -66,6 +84,7 @@ async function connectToWhatsApp() {
               from_phone: phone,
               sender_name: senderName,
               content: content,
+              direction: isFromMe ? "OUTBOUND" : "INBOUND",
               media_type: "TEXT",
             });
             console.log(`[WA-BRIDGE] Successfully forwarded to CRM backend.`);
@@ -101,12 +120,33 @@ app.post("/send", async (req, res) => {
     if (cleanPhone.startsWith("0")) {
       cleanPhone = "62" + cleanPhone.slice(1);
     }
-    const formattedJid = `${cleanPhone}@s.whatsapp.net`;
 
-    console.log(`[WA-BRIDGE] Sending outbound WA to ${formattedJid}: ${text}`);
-    await sock.sendMessage(formattedJid, { text: text });
+    // Resolve target JIDs (support both LID format e.g. @lid and standard phone @s.whatsapp.net)
+    let targetJids = [];
+    if (phoneToJidMap[to] || phoneToJidMap[cleanPhone]) {
+      targetJids.push(phoneToJidMap[to] || phoneToJidMap[cleanPhone]);
+    } else if (to.includes("@")) {
+      targetJids.push(to);
+    } else if (cleanPhone.length >= 13) {
+      targetJids.push(`${cleanPhone}@lid`);
+      targetJids.push(`${cleanPhone}@s.whatsapp.net`);
+    } else {
+      targetJids.push(`${cleanPhone}@s.whatsapp.net`);
+    }
 
-    return res.json({ status: "SENT", to: cleanPhone });
+    console.log(`[WA-BRIDGE] Sending outbound WA to targets [${targetJids.join(", ")}]: ${text}`);
+    let sentCount = 0;
+    for (const jid of targetJids) {
+      try {
+        await sock.sendMessage(jid, { text: text });
+        console.log(`[WA-BRIDGE] Successfully delivered outbound WA message to: ${jid}`);
+        sentCount++;
+      } catch (err) {
+        console.error(`[WA-BRIDGE] Error sending to JID ${jid}:`, err.message);
+      }
+    }
+
+    return res.json({ status: "SENT", to: cleanPhone, deliveredCount: sentCount });
   } catch (err) {
     console.error("[WA-BRIDGE] Error sending WA message:", err);
     return res.status(500).json({ error: err.message });
