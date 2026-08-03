@@ -143,6 +143,35 @@ func (c *CRMController) UpdateLeadStatus(ctx *fiber.Ctx) error {
 	return success(ctx, fiber.StatusOK, "Lead status updated", lead)
 }
 
+func (c *CRMController) HandoverLead(ctx *fiber.Ctx) error {
+	leadID, err := uuid.Parse(ctx.Params("id"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid lead ID")
+	}
+
+	var req struct {
+		BranchID string `json:"branch_id"`
+		Note     string `json:"note"`
+	}
+	if err := ctx.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+	}
+
+	branchID, err := uuid.Parse(req.BranchID)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid branch ID")
+	}
+
+	userIDStr, _ := ctx.Locals("userId").(string)
+	userID, _ := uuid.Parse(userIDStr)
+
+	lead, err := c.crmService.HandoverLead(leadID, branchID, req.Note, userID)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	return success(ctx, fiber.StatusOK, "Lead handover completed successfully", lead)
+}
+
 func (c *CRMController) MergeLeads(ctx *fiber.Ctx) error {
 	var req struct {
 		PrimaryLeadID   string `json:"primary_lead_id"`

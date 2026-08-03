@@ -212,6 +212,30 @@ func (s *CRMService) UpdateLeadStatus(leadID uuid.UUID, newStatus string, userID
 	return &lead, nil
 }
 
+func (s *CRMService) HandoverLead(leadID uuid.UUID, targetBranchID uuid.UUID, note string, userID uuid.UUID) (*model.Lead, error) {
+	var lead model.Lead
+	if err := s.db.First(&lead, leadID).Error; err != nil {
+		return nil, err
+	}
+
+	oldBranchID := lead.BranchID
+	lead.BranchID = &targetBranchID
+	if note != "" {
+		lead.HandoverNote = note
+	}
+
+	if err := s.db.Save(&lead).Error; err != nil {
+		return nil, err
+	}
+
+	// Update active conversation's branch ID as well
+	s.db.Model(&model.Conversation{}).Where("lead_id = ?", leadID).Update("branch_id", targetBranchID)
+
+	s.LogAudit(&userID, &targetBranchID, "LEAD_HANDOVER", "leads", lead.ID.String(), map[string]interface{}{"branch_id": oldBranchID}, map[string]interface{}{"branch_id": targetBranchID, "note": note}, "Handover between branches")
+
+	return &lead, nil
+}
+
 func (s *CRMService) MergeLeads(primaryLeadID, duplicateLeadID uuid.UUID, userID uuid.UUID) error {
 	var primary, duplicate model.Lead
 	if err := s.db.First(&primary, primaryLeadID).Error; err != nil {

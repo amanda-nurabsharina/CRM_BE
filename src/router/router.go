@@ -52,6 +52,7 @@ func Routes(app *fiber.App, db *gorm.DB) {
 	protected.Get("/leads", crmCtrl.GetLeads)
 	protected.Post("/leads", crmCtrl.CreateLead)
 	protected.Patch("/leads/:id/status", crmCtrl.UpdateLeadStatus)
+	protected.Post("/leads/:id/handover", crmCtrl.HandoverLead)
 	protected.Post("/leads/merge", crmCtrl.MergeLeads)
 
 	// Conversation & Message routes
