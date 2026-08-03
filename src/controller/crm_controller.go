@@ -368,6 +368,33 @@ func (c *CRMController) WhatsAppWebhook(ctx *fiber.Ctx) error {
 	return success(ctx, fiber.StatusOK, "Webhook processed successfully", msg)
 }
 
+func (c *CRMController) VoIPWebhook(ctx *fiber.Ctx) error {
+	var req struct {
+		FromPhone  string `json:"from_phone"`
+		CallerName string `json:"caller_name"`
+		SIPLine    string `json:"sip_line"`
+	}
+
+	if err := ctx.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid payload")
+	}
+
+	if req.CallerName == "" {
+		req.CallerName = "Panggilan Telepon VoIP (" + req.FromPhone + ")"
+	}
+	if req.SIPLine == "" {
+		req.SIPLine = "SIP Line Kantor"
+	}
+
+	msgContent := fmt.Sprintf("📞 Panggilan VoIP Masuk dari %s (%s) [%s]", req.CallerName, req.FromPhone, req.SIPLine)
+	msg, err := c.crmService.ProcessInboundWebhook(req.FromPhone, req.CallerName, msgContent, "CALL", "", "INBOUND")
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	return success(ctx, fiber.StatusOK, "VoIP Inbound Call Webhook processed", msg)
+}
+
 // ----------------- Tour Packages & Quotations -----------------
 func (c *CRMController) GetTourPackages(ctx *fiber.Ctx) error {
 	pkgs, err := c.crmService.GetTourPackages()
