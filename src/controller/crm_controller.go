@@ -325,6 +325,14 @@ func (c *CRMController) DeleteConversation(ctx *fiber.Ctx) error {
 	userIDStr, _ := ctx.Locals("userId").(string)
 	userID, _ := uuid.Parse(userIDStr)
 
+	// Enforce role permission: Only ADMIN_PUSAT can delete WhatsApp conversations
+	var user model.User
+	if errU := c.crmService.GetUserByID(userID, &user); errU == nil {
+		if user.Role != "ADMIN_PUSAT" {
+			return fiber.NewError(fiber.StatusForbidden, "Hanya Admin Pusat yang memiliki wewenang untuk menghapus percakapan WhatsApp")
+		}
+	}
+
 	if err := c.crmService.DeleteConversation(convID, userID); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
