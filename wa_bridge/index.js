@@ -124,6 +124,33 @@ async function connectToWhatsApp() {
       }
     }
   });
+
+  // Listen to Inbound WhatsApp Voice & Video Calls
+  sock.ev.on("call", async (callEvents) => {
+    for (const call of callEvents) {
+      if (call.status === "offer") {
+        const fromJid = call.from || "";
+        if (fromJid.endsWith("@g.us")) continue;
+
+        let phone = fromJid.split("@")[0];
+        const isVideo = call.isVideo ? "Video" : "Suara";
+        console.log(`[WA-BRIDGE] 📞 Inbound WhatsApp ${isVideo} Call OFFER from ${phone} (${fromJid})`);
+
+        try {
+          await axios.post(CRM_WEBHOOK_URL, {
+            from_phone: phone,
+            sender_name: `WhatsApp Call (+${phone})`,
+            content: `📞 Panggilan WhatsApp ${isVideo} Masuk (Calling...)`,
+            direction: "INBOUND",
+            media_type: "CALL",
+          });
+          console.log(`[WA-BRIDGE] Successfully forwarded Inbound Call to CRM backend.`);
+        } catch (err) {
+          console.error(`[WA-BRIDGE] Error forwarding Inbound Call:`, err.message);
+        }
+      }
+    }
+  });
 }
 
 // API Endpoints
