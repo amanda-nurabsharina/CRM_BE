@@ -3,6 +3,8 @@ const express = require("express");
 const cors = require("cors");
 const QRCode = require("qrcode");
 const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 app.use(cors());
@@ -36,18 +38,34 @@ async function connectToWhatsApp() {
     }
 
     if (connection === "close") {
-      const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-      console.log("[WA-BRIDGE] Connection closed due to ", lastDisconnect?.error, ", reconnecting: ", shouldReconnect);
+      const statusCode = (lastDisconnect?.error)?.output?.statusCode;
+      const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
+      console.log(`[WA-BRIDGE] Connection closed (statusCode: ${statusCode}). IsLoggedOut: ${isLoggedOut}...`);
       connectionStatus = "DISCONNECTED";
       currentQR = "";
-      if (shouldReconnect) {
-        connectToWhatsApp();
+      if (isLoggedOut) {
+        console.log("[WA-BRIDGE] Device logged out or 401 error. Clearing old auth session...");
+        try {
+          fs.rmSync(path.join(__dirname, "auth_info_baileys"), { recursive: true, force: true });
+        } catch (e) {}
       }
+      setTimeout(() => {
+        connectToWhatsApp();
+      }, 2000);
     } else if (connection === "open") {
       console.log("[WA-BRIDGE] WhatsApp Real Connection Opened & Authenticated!");
       connectionStatus = "CONNECTED";
       currentQR = "";
     }
+  });
+
+  // Global exception catch to keep bridge alive
+  process.on("uncaughtException", (err) => {
+    console.error("[WA-BRIDGE] Uncaught Exception caught (keeping server running):", err.message);
+  });
+
+  process.on("unhandledRejection", (reason) => {
+    console.error("[WA-BRIDGE] Unhandled Rejection caught (keeping server running):", reason);
   });
 
   sock.ev.on("messages.upsert", async (m) => {
