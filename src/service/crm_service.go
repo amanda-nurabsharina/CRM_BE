@@ -465,6 +465,18 @@ func (s *CRMService) CreateQuotation(leadID, packageID, userID uuid.UUID, pax in
 	branchID := uuid.Nil
 	if lead.BranchID != nil {
 		branchID = *lead.BranchID
+	} else {
+		var pusat model.Branch
+		if errP := s.db.Where("code = ?", "PUSAT").First(&pusat).Error; errP == nil {
+			branchID = pusat.ID
+		}
+	}
+
+	if userID == uuid.Nil {
+		var adminPusat model.User
+		if errU := s.db.Where("role = ?", "ADMIN_PUSAT").First(&adminPusat).Error; errU == nil {
+			userID = adminPusat.ID
+		}
 	}
 
 	quote := model.Quotation{
