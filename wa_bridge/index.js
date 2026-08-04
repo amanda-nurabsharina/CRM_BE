@@ -161,6 +161,32 @@ app.get("/status", (req, res) => {
   });
 });
 
+app.post("/reset", async (req, res) => {
+  try {
+    console.log("[WA-BRIDGE] Reset session requested from UI...");
+    if (sock) {
+      try { sock.end(); } catch (e) {}
+      sock = null;
+    }
+    connectionStatus = "DISCONNECTED";
+    currentQR = "";
+
+    const authDir = path.join(__dirname, "auth_info_baileys");
+    if (fs.existsSync(authDir)) {
+      fs.rmSync(authDir, { recursive: true, force: true });
+    }
+
+    setTimeout(() => {
+      connectToWhatsApp();
+    }, 1000);
+
+    return res.json({ status: "RESETTING", message: "WA Bridge session reset successfully" });
+  } catch (err) {
+    console.error("[WA-BRIDGE] Error resetting session:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 app.post("/send", async (req, res) => {
   try {
     const { to, text } = req.body;
