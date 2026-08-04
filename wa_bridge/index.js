@@ -10,8 +10,8 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = 3001;
-const CRM_WEBHOOK_URL = "http://localhost:8000/v1/webhooks/whatsapp";
+const PORT = process.env.PORT || 8001;
+const CRM_WEBHOOK_URL = process.env.CRM_WEBHOOK_URL || "http://crm-backend:8000/v1/webhooks/whatsapp";
 
 let sock = null;
 let currentQR = "";
