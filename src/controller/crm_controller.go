@@ -46,11 +46,12 @@ func (c *CRMController) UpdateBranch(ctx *fiber.Ctx) error {
 	}
 
 	var req struct {
-		Name          string `json:"name"`
-		Code          string `json:"code"`
-		WAPhoneNumber string `json:"wa_phone_number"`
-		CoverageAreas string `json:"coverage_areas"`
-		IsActive      bool   `json:"is_active"`
+		Name            string `json:"name"`
+		Code            string `json:"code"`
+		WAPhoneNumber   string `json:"wa_phone_number"`
+		VoIPPhoneNumber string `json:"voip_phone_number"`
+		CoverageAreas   string `json:"coverage_areas"`
+		IsActive        bool   `json:"is_active"`
 	}
 
 	if err := ctx.BodyParser(&req); err != nil {
@@ -60,7 +61,7 @@ func (c *CRMController) UpdateBranch(ctx *fiber.Ctx) error {
 	userIDStr, _ := ctx.Locals("userId").(string)
 	userID, _ := uuid.Parse(userIDStr)
 
-	b, err := c.crmService.UpdateBranch(id, req.Name, req.Code, req.WAPhoneNumber, req.CoverageAreas, req.IsActive, userID)
+	b, err := c.crmService.UpdateBranch(id, req.Name, req.Code, req.WAPhoneNumber, req.VoIPPhoneNumber, req.CoverageAreas, req.IsActive, userID)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
@@ -69,10 +70,11 @@ func (c *CRMController) UpdateBranch(ctx *fiber.Ctx) error {
 
 func (c *CRMController) CreateBranch(ctx *fiber.Ctx) error {
 	var req struct {
-		Name          string `json:"name"`
-		Code          string `json:"code"`
-		WAPhoneNumber string `json:"wa_phone_number"`
-		CoverageAreas string `json:"coverage_areas"`
+		Name            string `json:"name"`
+		Code            string `json:"code"`
+		WAPhoneNumber   string `json:"wa_phone_number"`
+		VoIPPhoneNumber string `json:"voip_phone_number"`
+		CoverageAreas   string `json:"coverage_areas"`
 	}
 
 	if err := ctx.BodyParser(&req); err != nil {
@@ -82,7 +84,7 @@ func (c *CRMController) CreateBranch(ctx *fiber.Ctx) error {
 	userIDStr, _ := ctx.Locals("userId").(string)
 	userID, _ := uuid.Parse(userIDStr)
 
-	b, err := c.crmService.CreateBranch(req.Name, req.Code, req.WAPhoneNumber, req.CoverageAreas, userID)
+	b, err := c.crmService.CreateBranch(req.Name, req.Code, req.WAPhoneNumber, req.VoIPPhoneNumber, req.CoverageAreas, userID)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
@@ -393,6 +395,64 @@ func (c *CRMController) VoIPWebhook(ctx *fiber.Ctx) error {
 	}
 
 	return success(ctx, fiber.StatusOK, "VoIP Inbound Call Webhook processed", msg)
+}
+
+func (c *CRMController) GetCallLogs(ctx *fiber.Ctx) error {
+	logs, err := c.crmService.GetCallLogs()
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	return success(ctx, fiber.StatusOK, "Call logs fetched successfully", logs)
+}
+
+func (c *CRMController) GetCallLogByID(ctx *fiber.Ctx) error {
+	id, err := uuid.Parse(ctx.Params("id"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid call log ID")
+	}
+	log, err := c.crmService.GetCallLogByID(id)
+	if err != nil {
+		return fiber.NewError(fiber.StatusNotFound, "Call log not found")
+	}
+	return success(ctx, fiber.StatusOK, "Call log details fetched", log)
+}
+
+func (c *CRMController) RouteCall(ctx *fiber.Ctx) error {
+	var req struct {
+		CallerNumber string `json:"caller_number"`
+		SIPLine      string `json:"sip_line"`
+	}
+	if err := ctx.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+	}
+
+	branch, lead, err := c.crmService.RouteCall(req.CallerNumber, req.SIPLine)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	return success(ctx, fiber.StatusOK, "Call routed successfully", fiber.Map{
+		"branch": branch,
+		"lead":   lead,
+	})
+}
+
+func (c *CRMController) TransferCall(ctx *fiber.Ctx) error {
+	callUUID := ctx.Params("id")
+	var req struct {
+		TargetExtension string `json:"target_extension"`
+		Reason          string `json:"reason"`
+	}
+	if err := ctx.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+	}
+
+	meta := fmt.Sprintf("Transfer to Ext %s - Reason: %s", req.TargetExtension, req.Reason)
+	if err := c.crmService.RecordCallEvent(callUUID, "TRANSFER", meta); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	return success(ctx, fiber.StatusOK, "Call transfer recorded successfully", nil)
 }
 
 // ----------------- Tour Packages & Quotations -----------------

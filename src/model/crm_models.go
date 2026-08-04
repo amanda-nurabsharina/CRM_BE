@@ -12,8 +12,9 @@ type Branch struct {
 	ID            uuid.UUID      `gorm:"type:uuid;primary_key;" json:"id"`
 	Name          string         `gorm:"type:varchar(100);not null" json:"name"`
 	Code          string         `gorm:"type:varchar(10);uniqueIndex;not null" json:"code"` // e.g. JKT_PST, JKT_SEL, JKT_UTR, MDN, TGR
-	WAPhoneNumber string         `gorm:"type:varchar(30);uniqueIndex" json:"wa_phone_number"`
-	CoverageAreas string         `gorm:"type:text" json:"coverage_areas"` // comma separated area list
+	WAPhoneNumber   string         `gorm:"type:varchar(30);uniqueIndex" json:"wa_phone_number"`
+	VoIPPhoneNumber string         `gorm:"type:varchar(30)" json:"voip_phone_number"`
+	CoverageAreas   string         `gorm:"type:text" json:"coverage_areas"` // comma separated area list
 	IsActive      bool           `gorm:"default:true" json:"is_active"`
 	CreatedAt     time.Time      `json:"created_at"`
 	UpdatedAt     time.Time      `json:"updated_at"`
@@ -281,6 +282,88 @@ type AuditLog struct {
 func (al *AuditLog) BeforeCreate(tx *gorm.DB) (err error) {
 	if al.ID == uuid.Nil {
 		al.ID = uuid.New()
+	}
+	return
+}
+
+// ----------------- Production VoIP & SIP Telephony Models (PDF Specs) -----------------
+
+type SIPProvider struct {
+	ID           uuid.UUID `gorm:"type:uuid;primary_key;" json:"id"`
+	Name         string    `gorm:"type:varchar(100);not null" json:"name"`
+	ProviderType string    `gorm:"type:varchar(50);not null" json:"provider_type"` // TWILIO, ASTERISK, 3CX, TELKOM
+	SIPDomain    string    `gorm:"type:varchar(150)" json:"sip_domain"`
+	SIPUsername  string    `gorm:"type:varchar(100)" json:"sip_username"`
+	PhoneNumber  string    `gorm:"type:varchar(30);not null" json:"phone_number"`
+	Status       string    `gorm:"type:varchar(20);default:'ACTIVE'" json:"status"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+func (sp *SIPProvider) BeforeCreate(tx *gorm.DB) (err error) {
+	if sp.ID == uuid.Nil {
+		sp.ID = uuid.New()
+	}
+	return
+}
+
+type SIPExtension struct {
+	ID              uuid.UUID  `gorm:"type:uuid;primary_key;" json:"id"`
+	UserID          *uuid.UUID `gorm:"type:uuid;index" json:"user_id"`
+	User            *User      `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	ExtensionNumber string     `gorm:"type:varchar(20);not null;uniqueIndex" json:"extension_number"`
+	SIPUsername     string     `gorm:"type:varchar(100)" json:"sip_username"`
+	Status          string     `gorm:"type:varchar(20);default:'ONLINE'" json:"status"`
+	CreatedAt       time.Time  `json:"created_at"`
+}
+
+func (se *SIPExtension) BeforeCreate(tx *gorm.DB) (err error) {
+	if se.ID == uuid.Nil {
+		se.ID = uuid.New()
+	}
+	return
+}
+
+type CallLog struct {
+	ID                uuid.UUID   `gorm:"type:uuid;primary_key;" json:"id"`
+	CallUUID          string      `gorm:"type:varchar(100);uniqueIndex;not null" json:"call_uuid"`
+	Direction         string      `gorm:"type:varchar(20);not null" json:"direction"` // INBOUND, OUTBOUND
+	CallerNumber      string      `gorm:"type:varchar(50);not null" json:"caller_number"`
+	DestinationNumber string      `gorm:"type:varchar(50)" json:"destination_number"`
+	ExtensionID       *uuid.UUID  `gorm:"type:uuid;index" json:"extension_id"`
+	UserID            *uuid.UUID  `gorm:"type:uuid;index" json:"user_id"`
+	User              *User       `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	LeadID            *uuid.UUID  `gorm:"type:uuid;index" json:"lead_id"`
+	Lead              *Lead       `gorm:"foreignKey:LeadID" json:"lead,omitempty"`
+	BranchID          *uuid.UUID  `gorm:"type:uuid;index" json:"branch_id"`
+	Branch            *Branch     `gorm:"foreignKey:BranchID" json:"branch,omitempty"`
+	Status            string      `gorm:"type:varchar(30);not null" json:"status"` // RINGING, ANSWERED, HANGUP, MISSED, REJECTED, TRANSFERRED
+	StartedAt         time.Time   `json:"started_at"`
+	AnsweredAt        *time.Time  `json:"answered_at"`
+	EndedAt           *time.Time  `json:"ended_at"`
+	DurationSeconds   int         `gorm:"default:0" json:"duration_seconds"`
+	RecordingURL      string      `gorm:"type:varchar(500)" json:"recording_url"`
+	Events            []CallEvent `gorm:"foreignKey:CallID" json:"events,omitempty"`
+	CreatedAt         time.Time   `json:"created_at"`
+}
+
+func (cl *CallLog) BeforeCreate(tx *gorm.DB) (err error) {
+	if cl.ID == uuid.Nil {
+		cl.ID = uuid.New()
+	}
+	return
+}
+
+type CallEvent struct {
+	ID        uuid.UUID `gorm:"type:uuid;primary_key;" json:"id"`
+	CallID    uuid.UUID `gorm:"type:uuid;not null;index" json:"call_id"`
+	EventType string    `gorm:"type:varchar(50);not null" json:"event_type"` // RINGING, ANSWERED, HANGUP, TRANSFER
+	EventAt   time.Time `json:"event_at"`
+	Metadata  string    `gorm:"type:text" json:"metadata"`
+}
+
+func (ce *CallEvent) BeforeCreate(tx *gorm.DB) (err error) {
+	if ce.ID == uuid.Nil {
+		ce.ID = uuid.New()
 	}
 	return
 }

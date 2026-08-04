@@ -52,7 +52,7 @@ func (s *CRMService) GetBranches() ([]model.Branch, error) {
 	return branches, err
 }
 
-func (s *CRMService) UpdateBranch(id uuid.UUID, name, code, waPhone, coverageAreas string, isActive bool, userID uuid.UUID) (*model.Branch, error) {
+func (s *CRMService) UpdateBranch(id uuid.UUID, name, code, waPhone, voipPhone, coverageAreas string, isActive bool, userID uuid.UUID) (*model.Branch, error) {
 	var b model.Branch
 	if err := s.db.First(&b, id).Error; err != nil {
 		return nil, err
@@ -61,6 +61,7 @@ func (s *CRMService) UpdateBranch(id uuid.UUID, name, code, waPhone, coverageAre
 	b.Name = name
 	b.Code = code
 	b.WAPhoneNumber = waPhone
+	b.VoIPPhoneNumber = voipPhone
 	b.CoverageAreas = coverageAreas
 	b.IsActive = isActive
 
@@ -105,13 +106,14 @@ func (s *CRMService) CreateUser(name, email, password, role string, branchID *uu
 	return &user, nil
 }
 
-func (s *CRMService) CreateBranch(name, code, waPhone, coverageAreas string, userID uuid.UUID) (*model.Branch, error) {
+func (s *CRMService) CreateBranch(name, code, waPhone, voipPhone, coverageAreas string, userID uuid.UUID) (*model.Branch, error) {
 	b := model.Branch{
-		Name:          name,
-		Code:          code,
-		WAPhoneNumber: waPhone,
-		CoverageAreas: coverageAreas,
-		IsActive:      true,
+		Name:            name,
+		Code:            code,
+		WAPhoneNumber:   waPhone,
+		VoIPPhoneNumber: voipPhone,
+		CoverageAreas:   coverageAreas,
+		IsActive:        true,
 	}
 	if err := s.db.Create(&b).Error; err != nil {
 		return nil, err
@@ -960,4 +962,51 @@ func (s *CRMService) UpdateTraveler(id uuid.UUID, fullName, idCardNumber, passpo
 
 func (s *CRMService) DeleteTraveler(id uuid.UUID) error {
 	return s.db.Delete(&model.BookingTraveler{}, id).Error
+}
+
+// ----------------- Production VoIP & Call Log Services (PDF Specs) -----------------
+func (s *CRMService) GetCallLogs() ([]model.CallLog, error) {
+	var logs []model.CallLog
+	err := s.db.Preload("Branch").Preload("User").Preload("Lead").Preload("Events").Order("created_at desc").Find(&logs).Error
+	return logs, err
+}
+
+func (s *CRMService) GetCallLogByID(id uuid.UUID) (*model.CallLog, error) {
+	var log model.CallLog
+	err := s.db.Preload("Branch").Preload("User").Preload("Lead").Preload("Events").First(&log, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &log, nil
+}
+
+func (s *CRMService) RouteCall(callerNumber, sipLine string) (*model.Branch, *model.Lead, error) {
+	var lead model.Lead
+	s.db.Where("phone_number LIKE ?", "%"+callerNumber+"%").First(&lead)
+
+	var branch model.Branch
+	if lead.BranchID != nil {
+		s.db.First(&branch, *lead.BranchID)
+	} else if sipLine != "" {
+		s.db.Where("voip_phone_number = ?", sipLine).First(&branch)
+	}
+	if branch.ID == uuid.Nil {
+		s.db.Where("code = ?", "PUSAT").First(&branch)
+	}
+
+	return &branch, &lead, nil
+}
+
+func (s *CRMService) RecordCallEvent(callUUID, eventType, metadata string) error {
+	var log model.CallLog
+	if err := s.db.Where("call_uuid = ?", callUUID).First(&log).Error; err != nil {
+		return err
+	}
+	event := model.CallEvent{
+		CallID:    log.ID,
+		EventType: eventType,
+		EventAt:   time.Now(),
+		Metadata:  metadata,
+	}
+	return s.db.Create(&event).Error
 }

@@ -50,6 +50,10 @@ func Connect() *gorm.DB {
 		&model.BookingTraveler{},
 		&model.TravelerDocument{},
 		&model.AuditLog{},
+		&model.SIPProvider{},
+		&model.SIPExtension{},
+		&model.CallLog{},
+		&model.CallEvent{},
 	); err != nil {
 		utils.Log.Errorf("Auto migration error: %v", err)
 	} else {

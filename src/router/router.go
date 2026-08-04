@@ -32,6 +32,10 @@ func Routes(app *fiber.App, db *gorm.DB) {
 	// Public Webhooks & Forms
 	v1.Post("/webhooks/whatsapp", crmCtrl.WhatsAppWebhook)
 	v1.Post("/webhooks/voip", crmCtrl.VoIPWebhook)
+	v1.Get("/calls", crmCtrl.GetCallLogs)
+	v1.Get("/calls/:id", crmCtrl.GetCallLogByID)
+	v1.Post("/calls/route", crmCtrl.RouteCall)
+	v1.Post("/calls/:id/transfer", crmCtrl.TransferCall)
 
 	// Auth routes
 	auth := v1.Group("/auth")
