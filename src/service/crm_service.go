@@ -299,6 +299,46 @@ func (s *CRMService) MergeLeads(primaryLeadID, duplicateLeadID uuid.UUID, userID
 	return nil
 }
 
+func (s *CRMService) CreateNewConversation(phone, name, text, userIDStr string) (*model.Conversation, error) {
+	cleanPhone := strings.ReplaceAll(phone, "+", "")
+	cleanPhone = strings.ReplaceAll(cleanPhone, "-", "")
+	cleanPhone = strings.TrimSpace(cleanPhone)
+	if strings.HasPrefix(cleanPhone, "0") {
+		cleanPhone = "62" + cleanPhone[1:]
+	}
+
+	if name == "" {
+		name = fmt.Sprintf("Pelanggan WA (%s)", cleanPhone)
+	}
+
+	lead, err := s.RouteAndCreateLead(name, cleanPhone, "Pusat", "DIRECT_OUTBOUND")
+	if err != nil {
+		return nil, err
+	}
+
+	var conv model.Conversation
+	errC := s.db.Where("lead_id = ?", lead.ID).First(&conv).Error
+	if errC != nil {
+		conv = model.Conversation{
+			LeadID:        lead.ID,
+			LastMessageAt: time.Now(),
+		}
+		if lead.BranchID != nil {
+			conv.BranchID = *lead.BranchID
+		}
+		if err := s.db.Create(&conv).Error; err != nil {
+			return nil, err
+		}
+	}
+
+	if text != "" {
+		s.SendOutboundMessage(conv.ID, userIDStr, text)
+	}
+
+	s.db.Preload("Lead").Preload("Lead.Branch").First(&conv, conv.ID)
+	return &conv, nil
+}
+
 // ----------------- Conversations & Messages -----------------
 func (s *CRMService) GetConversations(branchID *uuid.UUID) ([]model.Conversation, error) {
 	var convs []model.Conversation
@@ -1009,4 +1049,113 @@ func (s *CRMService) RecordCallEvent(callUUID, eventType, metadata string) error
 		Metadata:  metadata,
 	}
 	return s.db.Create(&event).Error
+}
+
+func (s *CRMService) ProcessVoiceWebhook(provider, providerCallID, channel, direction, callerNumber, destinationNumber, status string, durationSeconds int, recordingURL string) (*model.CallLog, error) {
+	cleanCaller := strings.ReplaceAll(callerNumber, "+", "")
+	cleanCaller = strings.TrimSpace(cleanCaller)
+
+	// Idempotent Call Lookup
+	var callLog model.CallLog
+	err := s.db.Where("provider_call_id = ? OR call_uuid = ?", providerCallID, providerCallID).First(&callLog).Error
+
+	var lead model.Lead
+	s.db.Where("phone_number LIKE ?", "%"+cleanCaller+"%").First(&lead)
+
+	var branch model.Branch
+	if lead.BranchID != nil {
+		s.db.First(&branch, *lead.BranchID)
+	} else {
+		s.db.Where("code = ?", "PUSAT").First(&branch)
+	}
+
+	now := time.Now()
+
+	if err != nil { // Create New Call Log
+		callLog = model.CallLog{
+			CallUUID:          providerCallID,
+			Provider:          provider,
+			ProviderCallID:    providerCallID,
+			Channel:           channel,
+			Direction:         direction,
+			CallerNumber:      cleanCaller,
+			DestinationNumber: destinationNumber,
+			Status:            status,
+			StartedAt:         now,
+			RecordingURL:      recordingURL,
+			DurationSeconds:   durationSeconds,
+		}
+		if lead.ID != uuid.Nil {
+			callLog.CustomerID = &lead.ID
+			callLog.LeadID = &lead.ID
+		}
+		if branch.ID != uuid.Nil {
+			callLog.BranchID = &branch.ID
+		}
+		if status == "ANSWERED" {
+			callLog.AnsweredAt = &now
+		}
+		s.db.Create(&callLog)
+	} else { // Update Existing Call Log
+		callLog.Status = status
+		if status == "ANSWERED" && callLog.AnsweredAt == nil {
+			callLog.AnsweredAt = &now
+		}
+		if status == "COMPLETED" || status == "HANGUP" || status == "FAILED" || status == "CANCELLED" {
+			callLog.EndedAt = &now
+			if durationSeconds > 0 {
+				callLog.DurationSeconds = durationSeconds
+			} else if callLog.StartedAt.IsZero() == false {
+				callLog.DurationSeconds = int(now.Sub(callLog.StartedAt).Seconds())
+			}
+		}
+		if recordingURL != "" {
+			callLog.RecordingURL = recordingURL
+		}
+		s.db.Save(&callLog)
+	}
+
+	// Record Call Lifecycle Event
+	event := model.CallEvent{
+		CallID:    callLog.ID,
+		EventType: status,
+		EventAt:   now,
+		Metadata:  fmt.Sprintf("Provider: %s | Channel: %s | Status: %s", provider, channel, status),
+	}
+	s.db.Create(&event)
+
+	// Log Audit Trail
+	auditAction := fmt.Sprintf("%s_CALL_%s", direction, status)
+	s.LogAudit(callLog.AgentID, callLog.BranchID, auditAction, "calls", callLog.ID.String(), nil, callLog, "")
+
+	return &callLog, nil
+}
+
+func (s *CRMService) TransferCall(callID, targetAgentID, targetBranchID uuid.UUID, transferNote string) (*model.CallLog, error) {
+	var callLog model.CallLog
+	if err := s.db.First(&callLog, callID).Error; err != nil {
+		return nil, err
+	}
+
+	oldBranchID := callLog.BranchID
+	callLog.Status = "TRANSFERRED"
+	if targetBranchID != uuid.Nil {
+		callLog.BranchID = &targetBranchID
+	}
+	if targetAgentID != uuid.Nil {
+		callLog.AgentID = &targetAgentID
+	}
+	s.db.Save(&callLog)
+
+	event := model.CallEvent{
+		CallID:    callLog.ID,
+		EventType: "TRANSFER",
+		EventAt:   time.Now(),
+		Metadata:  fmt.Sprintf("Transferred to Branch: %s | Note: %s", targetBranchID.String(), transferNote),
+	}
+	s.db.Create(&event)
+
+	s.LogAudit(callLog.AgentID, oldBranchID, "CALL_TRANSFERRED", "calls", callLog.ID.String(), nil, callLog, transferNote)
+
+	return &callLog, nil
 }

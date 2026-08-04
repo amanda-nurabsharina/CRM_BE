@@ -1,6 +1,7 @@
 package router
 
 import (
+	"crm-be/src/config"
 	"crm-be/src/controller"
 	"crm-be/src/middleware"
 	"crm-be/src/provider"
@@ -11,8 +12,18 @@ import (
 )
 
 func Routes(app *fiber.App, db *gorm.DB) {
-	// Initialize WhatsApp Provider & Services (Connected to local WA Bridge)
-	waProvider := provider.NewRealWhatsAppProvider("http://localhost:3001")
+	// Dynamically initialize WhatsApp Provider (Official Meta WABA Cloud API or Local Baileys Bridge)
+	var waProvider provider.WhatsAppProvider
+	if config.WAProviderType == "meta_waba" {
+		waProvider = provider.NewMetaWABAProvider(
+			config.MetaWABAPhoneNumberID,
+			config.MetaWABABusinessAccountID,
+			config.MetaWABAAccessToken,
+		)
+	} else {
+		waProvider = provider.NewRealWhatsAppProvider("http://localhost:3001")
+	}
+
 	crmService := service.NewCRMService(db, waProvider)
 
 	userService := service.NewUserService(db)
@@ -30,8 +41,10 @@ func Routes(app *fiber.App, db *gorm.DB) {
 	v1.Get("/health", healthCtrl.Check)
 
 	// Public Webhooks & Forms
+	v1.Get("/webhooks/whatsapp", crmCtrl.VerifyMetaWebhook)
 	v1.Post("/webhooks/whatsapp", crmCtrl.WhatsAppWebhook)
 	v1.Post("/webhooks/voip", crmCtrl.VoIPWebhook)
+	v1.Post("/webhooks/voice", crmCtrl.VoiceWebhook)
 	v1.Get("/calls", crmCtrl.GetCallLogs)
 	v1.Get("/calls/:id", crmCtrl.GetCallLogByID)
 	v1.Post("/calls/route", crmCtrl.RouteCall)
@@ -45,7 +58,7 @@ func Routes(app *fiber.App, db *gorm.DB) {
 	auth.Post("/logout", authCtrl.Logout)
 
 	// Protected routes
-	protected := v1.Group("/", middleware.Protected())
+	protected := v1.Group("", middleware.Protected())
 	protected.Get("/auth/me", authCtrl.Me)
 
 	// Branch & User Management routes
@@ -64,6 +77,7 @@ func Routes(app *fiber.App, db *gorm.DB) {
 
 	// Conversation & Message routes
 	protected.Get("/conversations", crmCtrl.GetConversations)
+	protected.Post("/conversations/new", crmCtrl.CreateNewConversation)
 	protected.Get("/conversations/:id/messages", crmCtrl.GetMessages)
 	protected.Post("/conversations/:id/messages", crmCtrl.SendMessage)
 	protected.Delete("/conversations/:id", crmCtrl.DeleteConversation)

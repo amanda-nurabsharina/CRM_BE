@@ -23,6 +23,13 @@ var (
 	JWTExpirationHours       int
 	JWTRefreshExpirationDays int
 	CORSOrigin               string
+
+	// Official Meta WABA Configuration
+	WAProviderType            string
+	MetaWABAPhoneNumberID     string
+	MetaWABABusinessAccountID string
+	MetaWABAAccessToken       string
+	MetaWABAVerifyToken       string
 )
 
 func LoadConfig() {
@@ -38,6 +45,8 @@ func LoadConfig() {
 	viper.SetDefault("JWT_EXPIRATION_HOURS", 24)
 	viper.SetDefault("JWT_REFRESH_EXPIRATION_DAYS", 7)
 	viper.SetDefault("CORS_ORIGIN", "*")
+	viper.SetDefault("WA_PROVIDER_TYPE", "meta_waba")
+	viper.SetDefault("META_WABA_VERIFY_TOKEN", "dgt_crm_meta_webhook_verify_token_2026")
 
 	if err := viper.ReadInConfig(); err != nil {
 		if os.IsNotExist(err) {
@@ -63,6 +72,12 @@ func LoadConfig() {
 	JWTExpirationHours = viper.GetInt("JWT_EXPIRATION_HOURS")
 	JWTRefreshExpirationDays = viper.GetInt("JWT_REFRESH_EXPIRATION_DAYS")
 	CORSOrigin = viper.GetString("CORS_ORIGIN")
+
+	WAProviderType = viper.GetString("WA_PROVIDER_TYPE")
+	MetaWABAPhoneNumberID = viper.GetString("META_WABA_PHONE_NUMBER_ID")
+	MetaWABABusinessAccountID = viper.GetString("META_WABA_BUSINESS_ACCOUNT_ID")
+	MetaWABAAccessToken = viper.GetString("META_WABA_ACCESS_TOKEN")
+	MetaWABAVerifyToken = viper.GetString("META_WABA_VERIFY_TOKEN")
 }
 
 func FiberConfig() fiber.Config {

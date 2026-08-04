@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"crm-be/src/config"
 	"crm-be/src/model"
 	"crm-be/src/response"
 	"crm-be/src/service"
@@ -283,6 +284,29 @@ func (c *CRMController) GetConversations(ctx *fiber.Ctx) error {
 	return success(ctx, fiber.StatusOK, "Conversations retrieved", convs)
 }
 
+func (c *CRMController) CreateNewConversation(ctx *fiber.Ctx) error {
+	var req struct {
+		Phone string `json:"phone"`
+		Name  string `json:"name"`
+		Text  string `json:"text"`
+	}
+	if err := ctx.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+	}
+
+	if req.Phone == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "Phone number is required")
+	}
+
+	userIDStr, _ := ctx.Locals("userId").(string)
+
+	conv, err := c.crmService.CreateNewConversation(req.Phone, req.Name, req.Text, userIDStr)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	return success(ctx, fiber.StatusCreated, "Conversation created & message sent", conv)
+}
+
 func (c *CRMController) GetMessages(ctx *fiber.Ctx) error {
 	convID, err := uuid.Parse(ctx.Params("id"))
 	if err != nil {
@@ -438,18 +462,41 @@ func (c *CRMController) RouteCall(ctx *fiber.Ctx) error {
 }
 
 func (c *CRMController) TransferCall(ctx *fiber.Ctx) error {
-	callUUID := ctx.Params("id")
+	callIDStr := ctx.Params("id")
 	var req struct {
+		TargetAgentID   string `json:"target_agent_id"`
+		TargetBranchID  string `json:"target_branch_id"`
 		TargetExtension string `json:"target_extension"`
+		Note            string `json:"note"`
 		Reason          string `json:"reason"`
 	}
 	if err := ctx.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
 	}
 
+	callID, err := uuid.Parse(callIDStr)
+	if err == nil {
+		var agentID uuid.UUID
+		if req.TargetAgentID != "" {
+			agentID, _ = uuid.Parse(req.TargetAgentID)
+		}
+		var branchID uuid.UUID
+		if req.TargetBranchID != "" {
+			branchID, _ = uuid.Parse(req.TargetBranchID)
+		}
+		note := req.Note
+		if note == "" {
+			note = req.Reason
+		}
+		callLog, errT := c.crmService.TransferCall(callID, agentID, branchID, note)
+		if errT == nil {
+			return success(ctx, fiber.StatusOK, "Call transferred successfully", callLog)
+		}
+	}
+
 	meta := fmt.Sprintf("Transfer to Ext %s - Reason: %s", req.TargetExtension, req.Reason)
-	if err := c.crmService.RecordCallEvent(callUUID, "TRANSFER", meta); err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	if errE := c.crmService.RecordCallEvent(callIDStr, "TRANSFER", meta); errE != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, errE.Error())
 	}
 
 	return success(ctx, fiber.StatusOK, "Call transfer recorded successfully", nil)
@@ -802,4 +849,58 @@ func (c *CRMController) DeleteTraveler(ctx *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 	return success(ctx, fiber.StatusOK, "Traveler deleted successfully", nil)
+}
+
+// ----------------- Meta WABA Webhook Verification -----------------
+func (c *CRMController) VerifyMetaWebhook(ctx *fiber.Ctx) error {
+	mode := ctx.Query("hub.mode")
+	token := ctx.Query("hub.verify_token")
+	challenge := ctx.Query("hub.challenge")
+
+	if mode == "subscribe" && token == config.MetaWABAVerifyToken {
+		return ctx.Status(fiber.StatusOK).SendString(challenge)
+	}
+	return ctx.Status(fiber.StatusForbidden).SendString("Verification token mismatch")
+}
+
+// ----------------- Production Voice Webhook & Call Routing (PDF Spec 5) -----------------
+func (c *CRMController) VoiceWebhook(ctx *fiber.Ctx) error {
+	var req struct {
+		Provider          string `json:"provider"`
+		ProviderCallID    string `json:"provider_call_id"`
+		Channel           string `json:"channel"`
+		Direction         string `json:"direction"`
+		CallerNumber      string `json:"caller_number"`
+		DestinationNumber string `json:"destination_number"`
+		Status            string `json:"status"`
+		DurationSeconds   int    `json:"duration_seconds"`
+		RecordingURL      string `json:"recording_url"`
+	}
+
+	if err := ctx.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid voice webhook payload")
+	}
+
+	if req.Provider == "" {
+		req.Provider = "WHATSAPP_BUSINESS"
+	}
+	if req.Channel == "" {
+		req.Channel = "WHATSAPP"
+	}
+	if req.Direction == "" {
+		req.Direction = "INBOUND"
+	}
+	if req.Status == "" {
+		req.Status = "RINGING"
+	}
+	if req.ProviderCallID == "" {
+		req.ProviderCallID = fmt.Sprintf("CALL-%d", time.Now().UnixNano())
+	}
+
+	callLog, err := c.crmService.ProcessVoiceWebhook(req.Provider, req.ProviderCallID, req.Channel, req.Direction, req.CallerNumber, req.DestinationNumber, req.Status, req.DurationSeconds, req.RecordingURL)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	return success(ctx, fiber.StatusOK, "Voice webhook processed successfully", callLog)
 }

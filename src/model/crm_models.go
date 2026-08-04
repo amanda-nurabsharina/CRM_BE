@@ -326,17 +326,22 @@ func (se *SIPExtension) BeforeCreate(tx *gorm.DB) (err error) {
 type CallLog struct {
 	ID                uuid.UUID   `gorm:"type:uuid;primary_key;" json:"id"`
 	CallUUID          string      `gorm:"type:varchar(100);uniqueIndex;not null" json:"call_uuid"`
-	Direction         string      `gorm:"type:varchar(20);not null" json:"direction"` // INBOUND, OUTBOUND
+	Provider          string      `gorm:"type:varchar(50);default:'WHATSAPP_BUSINESS'" json:"provider"` // WHATSAPP_BUSINESS, TWILIO, META_CALLING, SIP
+	ProviderCallID    string      `gorm:"type:varchar(100);index" json:"provider_call_id"`
+	Channel           string      `gorm:"type:varchar(30);default:'WHATSAPP'" json:"channel"` // WHATSAPP, PSTN
+	Direction         string      `gorm:"type:varchar(20);not null" json:"direction"`         // INBOUND, OUTBOUND
 	CallerNumber      string      `gorm:"type:varchar(50);not null" json:"caller_number"`
 	DestinationNumber string      `gorm:"type:varchar(50)" json:"destination_number"`
 	ExtensionID       *uuid.UUID  `gorm:"type:uuid;index" json:"extension_id"`
-	UserID            *uuid.UUID  `gorm:"type:uuid;index" json:"user_id"`
-	User              *User       `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	AgentID           *uuid.UUID  `gorm:"type:uuid;index" json:"agent_id"`
+	Agent             *User       `gorm:"foreignKey:AgentID" json:"agent,omitempty"`
+	CustomerID        *uuid.UUID  `gorm:"type:uuid;index" json:"customer_id"`
+	Customer          *Lead       `gorm:"foreignKey:CustomerID" json:"customer,omitempty"`
 	LeadID            *uuid.UUID  `gorm:"type:uuid;index" json:"lead_id"`
 	Lead              *Lead       `gorm:"foreignKey:LeadID" json:"lead,omitempty"`
 	BranchID          *uuid.UUID  `gorm:"type:uuid;index" json:"branch_id"`
 	Branch            *Branch     `gorm:"foreignKey:BranchID" json:"branch,omitempty"`
-	Status            string      `gorm:"type:varchar(30);not null" json:"status"` // RINGING, ANSWERED, HANGUP, MISSED, REJECTED, TRANSFERRED
+	Status            string      `gorm:"type:varchar(30);not null" json:"status"` // RINGING, ANSWERED, COMPLETED, FAILED, CANCELLED, TRANSFERRED
 	StartedAt         time.Time   `json:"started_at"`
 	AnsweredAt        *time.Time  `json:"answered_at"`
 	EndedAt           *time.Time  `json:"ended_at"`
