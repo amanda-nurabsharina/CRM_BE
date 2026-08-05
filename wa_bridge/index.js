@@ -135,17 +135,21 @@ async function connectToWhatsApp() {
       const statusCode = (lastDisconnect?.error)?.output?.statusCode;
       const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
       console.log(`[WA-BRIDGE] Connection closed (statusCode: ${statusCode}). IsLoggedOut: ${isLoggedOut}...`);
-      connectionStatus = "DISCONNECTED";
-      currentQR = "";
+      
       if (isLoggedOut) {
         console.log("[WA-BRIDGE] Device logged out or 401 error. Clearing old auth session...");
+        connectionStatus = "DISCONNECTED";
+        currentQR = "";
         try {
           fs.rmSync(path.join(__dirname, "auth_info_baileys"), { recursive: true, force: true });
         } catch (e) {}
+      } else {
+        connectionStatus = "CONNECTING";
       }
+
       setTimeout(() => {
         connectToWhatsApp();
-      }, 2000);
+      }, 1000);
     } else if (connection === "open") {
       console.log("[WA-BRIDGE] WhatsApp Real Connection Opened & Authenticated!");
       connectionStatus = "CONNECTED";
@@ -427,8 +431,12 @@ app.post("/reset", async (req, res) => {
   try {
     console.log("[WA-BRIDGE] 🔄 Reset, Unlink session & Clear Inbox requested...");
     if (sock) {
+      if (connectionStatus === "CONNECTED") {
+        try {
+          await sock.logout().catch(() => null);
+        } catch (e) {}
+      }
       try {
-        await sock.logout().catch(() => null);
         sock.end();
       } catch (e) {}
       sock = null;
@@ -449,9 +457,8 @@ app.post("/reset", async (req, res) => {
       console.log("[WA-BRIDGE] 🧹 CRM Inbox database wiped clean for new scan.");
     } catch (e) {}
 
-    setTimeout(() => {
-      connectToWhatsApp();
-    }, 1200);
+    // Immediately connect to WhatsApp to generate fresh QR code
+    connectToWhatsApp();
 
     return res.json({ status: "RESETTING", message: "WA Bridge unlinked and inbox cleared successfully" });
   } catch (err) {
