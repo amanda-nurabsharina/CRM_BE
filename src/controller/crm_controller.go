@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -293,63 +294,66 @@ func (c *CRMController) ClearInbox(ctx *fiber.Ctx) error {
 	return success(ctx, fiber.StatusOK, "Inbox cleared successfully", nil)
 }
 
-func (c *CRMController) GetWAStatus(ctx *fiber.Ctx) error {
-	bridgeURL := os.Getenv("WA_BRIDGE_URL")
-	if bridgeURL == "" {
-		bridgeURL = "http://localhost:3001"
+func getBridgeCandidates() []string {
+	candidates := []string{}
+	if envURL := os.Getenv("WA_BRIDGE_URL"); envURL != "" {
+		candidates = append(candidates, strings.TrimRight(envURL, "/"))
 	}
-	client := &http.Client{Timeout: 2 * time.Second}
-	req, _ := http.NewRequest("GET", bridgeURL+"/status", nil)
-	resp, err := client.Do(req)
+	candidates = append(candidates,
+		"http://localhost:3001",
+		"http://crm-wa-bridge:8001",
+		"http://crm-wa-bridge:3001",
+		"http://wa-bridge:8001",
+		"http://wa-bridge:3001",
+		"http://poc_crm_wa_bridge:8001",
+		"http://poc_crm_wa_bridge:3001",
+		"http://127.0.0.1:3001",
+		"http://127.0.0.1:8001",
+	)
+	return candidates
+}
 
-	if err != nil || resp.StatusCode != 200 {
-		req2, _ := http.NewRequest("GET", "http://crm-wa-bridge:8001/status", nil)
-		resp2, err2 := client.Do(req2)
-		if err2 == nil && resp2.StatusCode == 200 {
-			defer resp2.Body.Close()
-			body2, _ := io.ReadAll(resp2.Body)
-			ctx.Set("Content-Type", "application/json")
-			return ctx.Send(body2)
+func (c *CRMController) GetWAStatus(ctx *fiber.Ctx) error {
+	client := &http.Client{Timeout: 1500 * time.Millisecond}
+	for _, baseURL := range getBridgeCandidates() {
+		req, err := http.NewRequest("GET", baseURL+"/status", nil)
+		if err != nil {
+			continue
 		}
-		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
-			"status":      "DISCONNECTED",
-			"qr_code_url": "",
-		})
+		resp, err := client.Do(req)
+		if err == nil && resp.StatusCode == 200 {
+			defer resp.Body.Close()
+			body, _ := io.ReadAll(resp.Body)
+			ctx.Set("Content-Type", "application/json")
+			return ctx.Send(body)
+		}
 	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	ctx.Set("Content-Type", "application/json")
-	return ctx.Send(body)
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"status":      "DISCONNECTED",
+		"qr_code_url": "",
+	})
 }
 
 func (c *CRMController) ResetWASession(ctx *fiber.Ctx) error {
-	bridgeURL := os.Getenv("WA_BRIDGE_URL")
-	if bridgeURL == "" {
-		bridgeURL = "http://localhost:3001"
-	}
-	client := &http.Client{Timeout: 3 * time.Second}
-	req, _ := http.NewRequest("POST", bridgeURL+"/reset", nil)
-	resp, err := client.Do(req)
-
-	if err != nil || resp.StatusCode != 200 {
-		req2, _ := http.NewRequest("POST", "http://crm-wa-bridge:8001/reset", nil)
-		resp2, err2 := client.Do(req2)
-		if err2 == nil && resp2.StatusCode == 200 {
-			defer resp2.Body.Close()
-			body2, _ := io.ReadAll(resp2.Body)
-			ctx.Set("Content-Type", "application/json")
-			return ctx.Send(body2)
+	client := &http.Client{Timeout: 2 * time.Second}
+	for _, baseURL := range getBridgeCandidates() {
+		req, err := http.NewRequest("POST", baseURL+"/reset", nil)
+		if err != nil {
+			continue
 		}
-		c.crmService.ClearInbox()
-		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
-			"status":  "RESETTING",
-			"message": "Inbox cleared and session reset requested",
-		})
+		resp, err := client.Do(req)
+		if err == nil && resp.StatusCode == 200 {
+			defer resp.Body.Close()
+			body, _ := io.ReadAll(resp.Body)
+			ctx.Set("Content-Type", "application/json")
+			return ctx.Send(body)
+		}
 	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	ctx.Set("Content-Type", "application/json")
-	return ctx.Send(body)
+	c.crmService.ClearInbox()
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"status":  "RESETTING",
+		"message": "Inbox cleared and session reset requested",
+	})
 }
 
 func (c *CRMController) CreateNewConversation(ctx *fiber.Ctx) error {
