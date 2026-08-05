@@ -112,7 +112,6 @@ async function connectToWhatsApp() {
 
   sock = makeWASocket({
     auth: state,
-    printQRInTerminal: true,
     syncFullHistory: true,
     markOnlineOnConnect: true,
     getMessage: async (key) => {
@@ -451,14 +450,15 @@ app.post("/reset", async (req, res) => {
       fs.rmSync(authDir, { recursive: true, force: true });
     }
 
-    // Wipe CRM database inbox
-    try {
-      await axios.post("http://localhost:8000/v1/admin/clear-inbox").catch(() => null);
-      console.log("[WA-BRIDGE] 🧹 CRM Inbox database wiped clean for new scan.");
-    } catch (e) {}
-
-    // Immediately connect to WhatsApp to generate fresh QR code
+    // Immediately trigger WhatsApp connection for instant QR generation
     connectToWhatsApp();
+
+    // Async clear inbox on CRM backend in background with 2s timeout
+    const crmBackendBase = (process.env.CRM_WEBHOOK_URL || "http://crm-backend:8000")
+      .replace(/\/v1\/webhooks\/whatsapp\/?$/, "")
+      .replace(/\/$/, "");
+
+    axios.post(`${crmBackendBase}/v1/admin/clear-inbox`, {}, { timeout: 2000 }).catch(() => null);
 
     return res.json({ status: "RESETTING", message: "WA Bridge unlinked and inbox cleared successfully" });
   } catch (err) {
