@@ -300,21 +300,20 @@ func getBridgeCandidates() []string {
 		candidates = append(candidates, strings.TrimRight(envURL, "/"))
 	}
 	candidates = append(candidates,
-		"http://localhost:3001",
 		"http://crm-wa-bridge:8001",
 		"http://crm-wa-bridge:3001",
 		"http://wa-bridge:8001",
 		"http://wa-bridge:3001",
 		"http://poc_crm_wa_bridge:8001",
 		"http://poc_crm_wa_bridge:3001",
+		"http://localhost:3001",
 		"http://127.0.0.1:3001",
-		"http://127.0.0.1:8001",
 	)
 	return candidates
 }
 
 func (c *CRMController) GetWAStatus(ctx *fiber.Ctx) error {
-	client := &http.Client{Timeout: 1500 * time.Millisecond}
+	client := &http.Client{Timeout: 800 * time.Millisecond}
 	for _, baseURL := range getBridgeCandidates() {
 		req, err := http.NewRequest("GET", baseURL+"/status", nil)
 		if err != nil {
