@@ -443,7 +443,6 @@ async function connectToWhatsApp() {
       }
     }
   });
-}
 
 // API Endpoints
 app.get("/status", (req, res) => {
