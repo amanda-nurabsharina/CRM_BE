@@ -107,11 +107,49 @@ function getRealPhoneNumber(msg) {
   return cleanDigits;
 }
 
+async function clearAuthSession() {
+  if (sock) {
+    try {
+      sock.ev.removeAllListeners("connection.update");
+      sock.ev.removeAllListeners("creds.update");
+      sock.end();
+    } catch (e) {}
+    sock = null;
+  }
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const authDir = path.join(__dirname, "auth_info_baileys");
+  try {
+    if (fs.existsSync(authDir)) {
+      const files = fs.readdirSync(authDir);
+      for (const file of files) {
+        try {
+          fs.unlinkSync(path.join(authDir, file));
+        } catch (e) {}
+      }
+      fs.rmSync(authDir, { recursive: true, force: true });
+    }
+  } catch (e) {
+    console.error("[WA-BRIDGE] Error clearing auth directory:", e);
+  }
+  connectionStatus = "DISCONNECTED";
+  currentQR = "";
+}
+
 async function connectToWhatsApp() {
+  if (sock) {
+    try {
+      sock.ev.removeAllListeners("connection.update");
+      sock.ev.removeAllListeners("creds.update");
+      sock.end();
+    } catch (e) {}
+    sock = null;
+  }
+
   const { state, saveCreds } = await useMultiFileAuthState("auth_info_baileys");
 
   sock = makeWASocket({
     auth: state,
+    browser: ["WhatsApp CRM", "Chrome", "120.0.0"],
     syncFullHistory: true,
     markOnlineOnConnect: true,
     getMessage: async (key) => {
@@ -136,26 +174,24 @@ async function connectToWhatsApp() {
       console.log(`[WA-BRIDGE] Connection closed (statusCode: ${statusCode}). IsLoggedOut: ${isLoggedOut}...`);
       
       if (isLoggedOut) {
-        console.log("[WA-BRIDGE] Device logged out or 401 error. Clearing old auth session...");
-        connectionStatus = "DISCONNECTED";
-        currentQR = "";
-        try {
-          fs.rmSync(path.join(__dirname, "auth_info_baileys"), { recursive: true, force: true });
-        } catch (e) {}
+        console.log("[WA-BRIDGE] Device logged out or 401 error. Clearing old auth session completely...");
+        await clearAuthSession();
+        setTimeout(() => {
+          connectToWhatsApp();
+        }, 1500);
       } else {
         connectionStatus = "CONNECTING";
+        setTimeout(() => {
+          connectToWhatsApp();
+        }, 3000);
       }
-
-      setTimeout(() => {
-        connectToWhatsApp();
-      }, 1000);
     } else if (connection === "open") {
       console.log("[WA-BRIDGE] WhatsApp Real Connection Opened & Authenticated!");
       connectionStatus = "CONNECTED";
       currentQR = "";
     }
   });
-
+}
   // Global exception catch to keep bridge alive
   process.on("uncaughtException", (err) => {
     console.error("[WA-BRIDGE] Uncaught Exception caught (keeping server running):", err.message);
@@ -429,26 +465,7 @@ app.get("/avatar", async (req, res) => {
 app.post("/reset", async (req, res) => {
   try {
     console.log("[WA-BRIDGE] 🔄 Reset, Unlink session & Clear Inbox requested...");
-    if (sock) {
-      if (connectionStatus === "CONNECTED") {
-        try {
-          await sock.logout().catch(() => null);
-        } catch (e) {}
-      }
-      try {
-        sock.end();
-      } catch (e) {}
-      sock = null;
-    }
-    connectionStatus = "DISCONNECTED";
-    currentQR = "";
-    isSyncingHistory = false;
-    syncedCount = 0;
-
-    const authDir = path.join(__dirname, "auth_info_baileys");
-    if (fs.existsSync(authDir)) {
-      fs.rmSync(authDir, { recursive: true, force: true });
-    }
+    await clearAuthSession();
 
     // Immediately trigger WhatsApp connection for instant QR generation
     connectToWhatsApp();
