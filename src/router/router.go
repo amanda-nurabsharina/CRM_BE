@@ -43,6 +43,8 @@ func Routes(app *fiber.App, db *gorm.DB) {
 	// Public Webhooks & Forms
 	v1.Get("/webhooks/whatsapp", crmCtrl.VerifyMetaWebhook)
 	v1.Post("/webhooks/whatsapp", crmCtrl.WhatsAppWebhook)
+	v1.Get("/wa/status", crmCtrl.GetWAStatus)
+	v1.Post("/wa/reset", crmCtrl.ResetWASession)
 	v1.Post("/admin/clear-inbox", crmCtrl.ClearInbox)
 	v1.Post("/webhooks/voip", crmCtrl.VoIPWebhook)
 	v1.Post("/webhooks/voice", crmCtrl.VoiceWebhook)

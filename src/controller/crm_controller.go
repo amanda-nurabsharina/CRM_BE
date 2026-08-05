@@ -6,6 +6,8 @@ import (
 	"crm-be/src/response"
 	"crm-be/src/service"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -289,6 +291,65 @@ func (c *CRMController) ClearInbox(ctx *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 	return success(ctx, fiber.StatusOK, "Inbox cleared successfully", nil)
+}
+
+func (c *CRMController) GetWAStatus(ctx *fiber.Ctx) error {
+	bridgeURL := os.Getenv("WA_BRIDGE_URL")
+	if bridgeURL == "" {
+		bridgeURL = "http://localhost:3001"
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	req, _ := http.NewRequest("GET", bridgeURL+"/status", nil)
+	resp, err := client.Do(req)
+
+	if err != nil || resp.StatusCode != 200 {
+		req2, _ := http.NewRequest("GET", "http://crm-wa-bridge:8001/status", nil)
+		resp2, err2 := client.Do(req2)
+		if err2 == nil && resp2.StatusCode == 200 {
+			defer resp2.Body.Close()
+			body2, _ := io.ReadAll(resp2.Body)
+			ctx.Set("Content-Type", "application/json")
+			return ctx.Send(body2)
+		}
+		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+			"status":      "DISCONNECTED",
+			"qr_code_url": "",
+		})
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	ctx.Set("Content-Type", "application/json")
+	return ctx.Send(body)
+}
+
+func (c *CRMController) ResetWASession(ctx *fiber.Ctx) error {
+	bridgeURL := os.Getenv("WA_BRIDGE_URL")
+	if bridgeURL == "" {
+		bridgeURL = "http://localhost:3001"
+	}
+	client := &http.Client{Timeout: 3 * time.Second}
+	req, _ := http.NewRequest("POST", bridgeURL+"/reset", nil)
+	resp, err := client.Do(req)
+
+	if err != nil || resp.StatusCode != 200 {
+		req2, _ := http.NewRequest("POST", "http://crm-wa-bridge:8001/reset", nil)
+		resp2, err2 := client.Do(req2)
+		if err2 == nil && resp2.StatusCode == 200 {
+			defer resp2.Body.Close()
+			body2, _ := io.ReadAll(resp2.Body)
+			ctx.Set("Content-Type", "application/json")
+			return ctx.Send(body2)
+		}
+		c.crmService.ClearInbox()
+		return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+			"status":  "RESETTING",
+			"message": "Inbox cleared and session reset requested",
+		})
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	ctx.Set("Content-Type", "application/json")
+	return ctx.Send(body)
 }
 
 func (c *CRMController) CreateNewConversation(ctx *fiber.Ctx) error {
