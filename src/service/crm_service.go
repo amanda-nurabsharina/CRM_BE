@@ -125,7 +125,11 @@ func (s *CRMService) CreateBranch(name, code, waPhone, voipPhone, coverageAreas 
 
 // ----------------- Lead Auto Routing & Duplicate Engine -----------------
 func (s *CRMService) RouteAndCreateLead(customerName, phone, domicile, source string) (*model.Lead, error) {
-	if phone == "status" || strings.Contains(phone, "@g.us") || len(phone) > 17 {
+	cleanDigits := strings.ReplaceAll(phone, "+", "")
+	cleanDigits = strings.ReplaceAll(cleanDigits, "-", "")
+	cleanDigits = strings.TrimSpace(cleanDigits)
+
+	if cleanDigits == "" || cleanDigits == "0" || cleanDigits == "status" || strings.Contains(phone, "@g.us") || len(cleanDigits) < 5 {
 		return nil, fmt.Errorf("ignoring non-individual WA contact: %s", phone)
 	}
 
@@ -155,6 +159,11 @@ func (s *CRMService) RouteAndCreateLead(customerName, phone, domicile, source st
 	var existingLead model.Lead
 	err := s.db.Where("phone_number = ? AND is_merged = ?", phone, false).First(&existingLead).Error
 	if err == nil {
+		// Update customer name if a real name (not default placeholder) is provided
+		if customerName != "" && !strings.HasPrefix(customerName, "WA User") && existingLead.CustomerName != customerName {
+			existingLead.CustomerName = customerName
+			s.db.Model(&existingLead).Update("customer_name", customerName)
+		}
 		// Existing active lead found — if a specific branch match (e.g. BSD -> Tangerang) was found, update lead's branch!
 		if matchedBranch != nil && (existingLead.BranchID == nil || *existingLead.BranchID != matchedBranch.ID) {
 			existingLead.BranchID = &matchedBranch.ID
@@ -307,6 +316,16 @@ func (s *CRMService) CreateNewConversation(phone, name, text, userIDStr string) 
 		cleanPhone = "62" + cleanPhone[1:]
 	}
 
+	digitsOnly := ""
+	for _, r := range cleanPhone {
+		if r >= '0' && r <= '9' {
+			digitsOnly += string(r)
+		}
+	}
+	if len(digitsOnly) < 5 {
+		return nil, fmt.Errorf("nomor telepon tidak valid: minimal 5 digit angka (contoh: 081298765432)")
+	}
+
 	if name == "" {
 		name = fmt.Sprintf("Pelanggan WA (%s)", cleanPhone)
 	}
@@ -349,10 +368,20 @@ func (s *CRMService) GetConversations(branchID *uuid.UUID) ([]model.Conversation
 	}
 
 	err := query.Order("last_message_at desc").Find(&convs).Error
+	if err == nil {
+		for i := range convs {
+			var unread int64
+			s.db.Model(&model.Message{}).Where("conversation_id = ? AND direction = ? AND is_read = ?", convs[i].ID, "INBOUND", false).Count(&unread)
+			convs[i].UnreadCount = int(unread)
+		}
+	}
 	return convs, err
 }
 
 func (s *CRMService) GetMessages(convID uuid.UUID) ([]model.Message, error) {
+	// Mark inbound messages as read when user views conversation
+	s.db.Model(&model.Message{}).Where("conversation_id = ? AND direction = ? AND is_read = ?", convID, "INBOUND", false).Updates(map[string]interface{}{"is_read": true, "status": "READ"})
+
 	var msgs []model.Message
 	err := s.db.Where("conversation_id = ?", convID).Order("created_at asc").Find(&msgs).Error
 	return msgs, err
@@ -378,6 +407,13 @@ func (s *CRMService) DeleteConversation(convID uuid.UUID, userID uuid.UUID) erro
 	}
 
 	s.LogAudit(&userID, &conv.ID, "CONVERSATION_DELETED", "conversations", convID.String(), conv, nil, "Chat deleted for testing")
+	return nil
+}
+
+func (s *CRMService) ClearInbox() error {
+	s.db.Exec("DELETE FROM messages")
+	s.db.Exec("DELETE FROM conversations")
+	s.db.Exec("DELETE FROM leads")
 	return nil
 }
 
@@ -423,7 +459,7 @@ func (s *CRMService) SendOutboundMessage(convID uuid.UUID, senderID string, text
 	return &msg, nil
 }
 
-func (s *CRMService) ProcessInboundWebhook(phone, senderName, content, mediaType, mediaURL, direction string) (*model.Message, error) {
+func (s *CRMService) ProcessInboundWebhook(phone, senderName, content, mediaType, mediaURL, direction string, isHistory bool, avatarURL string, sentAtUnix int64) (*model.Message, error) {
 	if direction == "" {
 		direction = "INBOUND"
 	}
@@ -436,6 +472,16 @@ func (s *CRMService) ProcessInboundWebhook(phone, senderName, content, mediaType
 	lead, err := s.RouteAndCreateLead(senderName, phone, content, "WHATSAPP")
 	if err != nil {
 		return nil, err
+	}
+
+	if avatarURL != "" && lead.AvatarURL != avatarURL {
+		lead.AvatarURL = avatarURL
+		s.db.Model(lead).Update("avatar_url", avatarURL)
+	}
+
+	msgSentAt := time.Now()
+	if sentAtUnix > 0 {
+		msgSentAt = time.Unix(sentAtUnix, 0)
 	}
 
 	// 2. Find conversation
@@ -458,7 +504,7 @@ func (s *CRMService) ProcessInboundWebhook(phone, senderName, content, mediaType
 			LeadID:        lead.ID,
 			BranchID:      branchID,
 			Status:        "ACTIVE",
-			LastMessageAt: time.Now(),
+			LastMessageAt: msgSentAt,
 		}
 		s.db.Create(&conv)
 	}
@@ -466,6 +512,12 @@ func (s *CRMService) ProcessInboundWebhook(phone, senderName, content, mediaType
 	msgType := mediaType
 	if msgType == "" || msgType == "CALL" {
 		msgType = "DOCUMENT"
+	}
+
+	isRead := isHistory || direction == "OUTBOUND"
+	status := "DELIVERED"
+	if isRead {
+		status = "READ"
 	}
 
 	msg := model.Message{
@@ -476,14 +528,17 @@ func (s *CRMService) ProcessInboundWebhook(phone, senderName, content, mediaType
 		MessageType:    msgType,
 		Content:        content,
 		MediaURL:       mediaURL,
-		Status:         "DELIVERED",
-		SentAt:         time.Now(),
+		Status:         status,
+		IsRead:         isRead,
+		SentAt:         msgSentAt,
 	}
 
 	s.db.Create(&msg)
 
-	conv.LastMessageAt = time.Now()
-	s.db.Save(&conv)
+	if msgSentAt.After(conv.LastMessageAt) || conv.LastMessageAt.IsZero() {
+		conv.LastMessageAt = msgSentAt
+		s.db.Save(&conv)
+	}
 
 	// Log Audit Trail for Inbound WhatsApp Calls
 	if mediaType == "CALL" || strings.Contains(content, "Panggilan") || strings.Contains(content, "Call") {

@@ -33,6 +33,7 @@ type Lead struct {
 	ID              uuid.UUID      `gorm:"type:uuid;primary_key;" json:"id"`
 	CustomerName    string         `gorm:"type:varchar(100);not null" json:"customer_name"`
 	PhoneNumber     string         `gorm:"type:varchar(30);not null;index" json:"phone_number"`
+	AvatarURL       string         `gorm:"type:varchar(500)" json:"avatar_url"`
 	Domicile        string         `gorm:"type:varchar(100)" json:"domicile"`
 	Source          string         `gorm:"type:varchar(50);default:'WHATSAPP'" json:"source"` // WHATSAPP, WEBSITE, ADS, REFERRAL
 	Status          string         `gorm:"type:varchar(30);default:'NEW'" json:"status"`      // NEW, QUALIFIED, QUOTATION_SENT, NEGOTIATION, DEAL, LOST, PAYMENT_PENDING, PAID, DOKUMEN, FULFILLMENT, COMPLETED, CANCELLED
@@ -64,6 +65,7 @@ type Conversation struct {
 	BranchID      uuid.UUID      `gorm:"type:uuid;not null;index" json:"branch_id"`
 	Status        string         `gorm:"type:varchar(20);default:'ACTIVE'" json:"status"`
 	LastMessageAt time.Time      `json:"last_message_at"`
+	UnreadCount   int            `gorm:"-" json:"unread_count"`
 	CreatedAt     time.Time      `json:"created_at"`
 	UpdatedAt     time.Time      `json:"updated_at"`
 	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`
@@ -88,6 +90,7 @@ type Message struct {
 	MediaURL          string    `gorm:"type:varchar(500)" json:"media_url"`
 	ExternalMessageID string    `gorm:"type:varchar(100)" json:"external_message_id"`
 	Status            string    `gorm:"type:varchar(20);default:'SENT'" json:"status"` // PENDING, SENT, DELIVERED, READ, FAILED
+	IsRead            bool      `gorm:"default:false" json:"is_read"`
 	SentAt            time.Time `json:"sent_at"`
 	CreatedAt         time.Time `json:"created_at"`
 }

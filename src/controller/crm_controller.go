@@ -284,6 +284,13 @@ func (c *CRMController) GetConversations(ctx *fiber.Ctx) error {
 	return success(ctx, fiber.StatusOK, "Conversations retrieved", convs)
 }
 
+func (c *CRMController) ClearInbox(ctx *fiber.Ctx) error {
+	if err := c.crmService.ClearInbox(); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	return success(ctx, fiber.StatusOK, "Inbox cleared successfully", nil)
+}
+
 func (c *CRMController) CreateNewConversation(ctx *fiber.Ctx) error {
 	var req struct {
 		Phone string `json:"phone"`
@@ -373,6 +380,9 @@ func (c *CRMController) WhatsAppWebhook(ctx *fiber.Ctx) error {
 		Direction  string `json:"direction"`
 		MediaType  string `json:"media_type"`
 		MediaURL   string `json:"media_url"`
+		IsHistory  bool   `json:"is_history"`
+		AvatarURL  string `json:"avatar_url"`
+		SentAt     int64  `json:"sent_at"`
 	}
 
 	if err := ctx.BodyParser(&req); err != nil {
@@ -386,7 +396,7 @@ func (c *CRMController) WhatsAppWebhook(ctx *fiber.Ctx) error {
 		req.SenderName = "WhatsApp User (" + req.FromPhone + ")"
 	}
 
-	msg, err := c.crmService.ProcessInboundWebhook(req.FromPhone, req.SenderName, req.Content, req.MediaType, req.MediaURL, req.Direction)
+	msg, err := c.crmService.ProcessInboundWebhook(req.FromPhone, req.SenderName, req.Content, req.MediaType, req.MediaURL, req.Direction, req.IsHistory, req.AvatarURL, req.SentAt)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
@@ -413,7 +423,7 @@ func (c *CRMController) VoIPWebhook(ctx *fiber.Ctx) error {
 	}
 
 	msgContent := fmt.Sprintf("📞 Panggilan VoIP Masuk dari %s (%s) [%s]", req.CallerName, req.FromPhone, req.SIPLine)
-	msg, err := c.crmService.ProcessInboundWebhook(req.FromPhone, req.CallerName, msgContent, "CALL", "", "INBOUND")
+	msg, err := c.crmService.ProcessInboundWebhook(req.FromPhone, req.CallerName, msgContent, "CALL", "", "INBOUND", false, "", 0)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
