@@ -110,9 +110,8 @@ function getRealPhoneNumber(msg) {
 async function clearAuthSession() {
   if (sock) {
     try {
-      sock.ev.removeAllListeners("connection.update");
-      sock.ev.removeAllListeners("creds.update");
-      sock.end();
+      if (sock.ws) sock.ws.close();
+      if (sock.end) sock.end();
     } catch (e) {}
     sock = null;
   }
@@ -138,9 +137,8 @@ async function clearAuthSession() {
 async function connectToWhatsApp() {
   if (sock) {
     try {
-      sock.ev.removeAllListeners("connection.update");
-      sock.ev.removeAllListeners("creds.update");
-      sock.end();
+      if (sock.ws) sock.ws.close();
+      if (sock.end) sock.end();
     } catch (e) {}
     sock = null;
   }
@@ -191,7 +189,6 @@ async function connectToWhatsApp() {
       currentQR = "";
     }
   });
-}
   // Global exception catch to keep bridge alive
   process.on("uncaughtException", (err) => {
     console.error("[WA-BRIDGE] Uncaught Exception caught (keeping server running):", err.message);
@@ -443,6 +440,7 @@ async function connectToWhatsApp() {
       }
     }
   });
+}
 
 // API Endpoints
 app.get("/status", (req, res) => {
